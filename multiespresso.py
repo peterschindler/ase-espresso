@@ -10,43 +10,45 @@
 from espresso import espresso, KohnShamConvergenceError
 from sys import stderr
 
-#keep track of ourselves so we can automatically stop us
-#when a new multi-espresso object is created
+# keep track of ourselves so we can automatically stop us
+# when a new multi-espresso object is created
 espressos = []
+
 
 class multiespresso:
     """
     Special calculator running multiple espresso calculators in parallel.
     Useful for e.g. nudged elastic band calculations.
     """
+
     def __init__(self,
-        ncalc = 1,
-        outdirprefix = 'out',
-        mtxt = 'multilog.txt',
-        **kwargs
-        ):
+                 ncalc=1,
+                 outdirprefix='out',
+                 mtxt='multilog.txt',
+                 **kwargs
+                 ):
         """
         In addition to the parameters of a standard espresso calculator,
         the number ncalc (default 1) of espresso calculators to be spawned
         should be specified. outdirprefix (default 'out') and
         mtxt (default 'multilog.txt') are optional.
         """
-        
-        #stop old espresso calculators
-        while len(espressos)>0:
+
+        # stop old espresso calculators
+        while len(espressos) > 0:
             espressos.pop().stop()
-        
+
         arg = kwargs.copy()
         arg['single_calculator'] = False
         arg['numcalcs'] = ncalc
         self.ncalc = ncalc
         self.outdirprefix = outdirprefix
         self.mtxt = mtxt
-        self.done = [False]*self.ncalc
-        
+        self.done = [False] * self.ncalc
+
         self.calculators = []
         for i in range(ncalc):
-            arg['outdir'] = outdirprefix+'_%04d' % i
+            arg['outdir'] = outdirprefix + '_%04d' % i
             arg['procrange'] = i
             esp = espresso(**arg)
             self.calculators.append(esp)
@@ -64,34 +66,39 @@ class multiespresso:
                 if self.calculators[i].recalculate:
                     if not self.done[i]:
                         a = self.calculators[i].cerr.readline()
-                        notdone |= (a!='' and a[:17]!='!    total energy')
-                        if a[:13]=='     stopping':
-                            raise RuntimeError, 'problem with calculator #%d' % i
-                        elif a[:20]=='     convergence NOT':
-                            raise KohnShamConvergenceError('calculator #%d did not converge' % i)
-                        elif a[1:17]!='    total energy':
+                        notdone |= (a != '' and a[:17] != '!    total energy')
+                        if a[:13] == '     stopping':
+                            raise RuntimeError(
+                                'problem with calculator #%d' % i)
+                        elif a[:20] == '     convergence NOT':
+                            raise KohnShamConvergenceError(
+                                'calculator #%d did not converge' % i)
+                        elif a[1:17] != '    total energy':
                             stderr.write(a)
                         else:
-                            if a[0]!='!':
+                            if a[0] != '!':
                                 self.done[i] = False
-                                print >>s, 'current free energy (calc. %3d; in scf cycle) :' % i, a.split()[-2], 'Ry'
+                                print >>s, 'current free energy (calc. %3d; in scf cycle) :' % i, a.split(
+                                )[-2], 'Ry'
                             else:
                                 self.done[i] = True
-                                print >>s, 'current free energy (calc. %3d; ionic step) :  ' % i, a.split()[-2], 'Ry'
+                                print >>s, 'current free energy (calc. %3d; ionic step) :  ' % i, a.split(
+                                )[-2], 'Ry'
                             s.flush()
         print >>s, ''
         s.close()
-                
 
     def set_images(self, images):
-        if len(images)!=self.ncalc:
-            raise ValueError, 'number of images (%d) doesn\'t match number of calculators (%d)' % (len(images),self.ncalc)
+        if len(images) != self.ncalc:
+            raise ValueError(
+                'number of images (%d) doesn\'t match number of calculators (%d)' %
+                (len(images), self.ncalc))
         for i in range(self.ncalc):
             images[i].set_calculator(self.calculators[i])
         self.images = images
 
     def set_neb(self, neb):
-        self.set_images(neb.images[1:len(neb.images)-1])
+        self.set_images(neb.images[1:len(neb.images) - 1])
         self.neb = neb
         self.neb.neb_orig_forces = self.neb.get_forces
         self.neb.get_forces = self.nebforce
@@ -99,6 +106,6 @@ class multiespresso:
     def nebforce(self):
         self.wait_for_total_energies()
         return self.neb.neb_orig_forces()
-    
+
     def get_world(self):
         return self.calculators[0].get_world()
