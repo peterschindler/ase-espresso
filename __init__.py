@@ -6,8 +6,22 @@
 # or http://www.gnu.org/copyleft/gpl.txt .
 #****************************************************************************
 
-gitver = 'GITVERSION'
 import os
+import atexit
+import sys
+import numpy as np
+from ase import Atoms
+from ase.units import Rydberg, Bohr
+from .atomic_configs import hundmag
+from .worldstub import world
+from . import subdirs
+from . import utils
+from ase.calculators.calculator import kptdensity2monkhorstpack
+
+try:
+    from ase.calculators.calculator import FileIOCalculator as Calculator
+except BaseException:
+    from ase.calculators.general import Calculator
 
 try:
     from . import espsite
@@ -16,19 +30,7 @@ except ImportError:
     print('*** You may use the espsite.py.example.* in the git checkout as templates.')
     raise ImportError
 site = espsite.config()
-
-try:
-    from ase.calculators.calculator import FileIOCalculator as Calculator
-except BaseException:
-    from ase.calculators.general import Calculator
-import atexit
-import sys
-import string
-import numpy as np
-from types import FileType, StringType
-from .constants import *
-from .utils import *
-from .subdirs import *
+gitver = 'GITVERSION'
 
 # ase controlled pw.x's register themselves here, so they can be
 # stopped automatically
@@ -257,8 +259,9 @@ class espresso(Calculator):
         shift of k-point grid
      fft_grid ( None )
         specify tuple of fft grid points (nr1,nr2,nr3) for q.e.
-        useful for series of calculations with changing cell size (e.g. lattice constant optimization)
-        uses q.e. default if not specified. [RK]
+        useful for series of calculations with changing cell size
+        (e.g. lattice constant optimization) uses q.e. default if not
+        specified. [RK]
      mode ( 'ase3' )
         relaxation mode:
         - 'ase3': dynamic communication between Quantum Espresso and python
@@ -271,7 +274,7 @@ class espresso(Calculator):
         Obtaining Quantum Espresso with the ase3 relaxation extensions is
         highly recommended, since it allows for using ase's optimizers without
         loosing efficiency:
-svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espresso-dynpy-beef
+        svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espresso-dynpy-beef
      fmax (0.05)
         max force limit for Espresso-internal relaxation (eV/Angstrom)
      constr_tol (None)
@@ -437,9 +440,8 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         self.fw = fw
         self.nbands = nbands
         if type(kpts) == float or type(kpts) == int:
-            from ase.calculators.calculator import kptdensity2monkhorstpack
             kpts = kptdensity2monkhorstpack(atoms, kpts)
-        elif isinstance(kpts, StringType):
+        elif isinstance(kpts, str):
             assert kpts == 'gamma'
         else:
             assert len(kpts) == 3
@@ -670,13 +672,13 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             raise ImportError
 
     def input_update(self):
-        # Run initialization functions, such that this can be called if variables in espresso are
-        # changes using set or directly.
-
+        """Run initialization functions, such that this can be called
+        if variables in espresso are changes using set or directly.
+        """
         self.create_outdir()  # Create the tmp output folder
 
         # sdir is the directory the script is run or submitted from
-        self.sdir = getsubmitorcurrentdir(site)
+        self.sdir = subdirs.getsubmitorcurrentdir(site)
 
         if self.dw is None:
             self.dw = 10. * self.pw
@@ -696,12 +698,12 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             self.field = {'status': False}
 
         if self.convergence is None:
-            self.conv_thr = 1e-6 / rydberg
+            self.conv_thr = 1e-6 / Rydberg
         else:
             if 'energy' in self.convergence:
-                self.conv_thr = self.convergence['energy'] / rydberg
+                self.conv_thr = self.convergence['energy'] / Rydberg
             else:
-                self.conv_thr = 1e-6 / rydberg
+                self.conv_thr = 1e-6 / Rydberg
 
         if self.beefensemble:
             if self.xc.upper().find('BEEF') < 0:
@@ -720,7 +722,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 self.log = self.sdir + '/log'
             else:
                 self.log = self.txt
-            self.scratch = mkscratch(self.localtmp, site)
+            self.scratch = sybdirs.mkscratch(self.localtmp, site)
             if self.output is not None:
                 if 'removewf' in self.output:
                     removewf = self.output['removewf']
@@ -734,7 +736,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 removewf = True
                 removesave = False
             atexit.register(
-                cleanup,
+                subdirs.cleanup,
                 self.localtmp,
                 self.scratch,
                 removewf,
@@ -800,11 +802,11 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             pass
 
     def atoms2species(self):
-        # Define several properties of the quantum espresso species from the ase atoms object.
-        # Takes into account that different spins (or different U etc.) on same kind of
-        # chemical elements are considered different species in quantum
-        # espresso
-
+        """Define several properties of the quantum espresso species
+        from the ase atoms object. Takes into account that different
+        spins (or different U etc.) on same kind of chemical elements
+        are considered different species in quantum espresso.
+        """
         symbols = self.atoms.get_chemical_symbols()
         masses = self.atoms.get_masses()
         magmoms = list(self.atoms.get_initial_magnetic_moments())
@@ -879,12 +881,13 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 mi = 0.0
             else:
                 mi = masses[i]
-            self.specdict[s] = specobj(s=s.strip('0123456789'),  # chemical symbol w/o index
-                                       mass=mi,
-                                       magmom=magmoms[i],
-                                       U=Ulist[i],
-                                       J=Jlist[i],
-                                       U_alpha=U_alphalist[i])
+            self.specdict[s] = utils.SpecObject(
+                s=s.strip('0123456789'),  # chemical symbol w/o index
+                mass=mi,
+                magmom=magmoms[i],
+                U=Ulist[i],
+                J=Jlist[i],
+                U_alpha=U_alphalist[i])
 
     def get_nvalence(self):
         nel = {}
@@ -912,7 +915,6 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         """Write Environ input file"""
         if self.cancalc:
             fname = self.localtmp + '/' + filename
-            #f = open(self.localtmp+'/pw.inp', 'w')
         else:
             fname = self.pwinp.split('/')[:-1] + '/' + filename
         f = open(fname, 'w')
@@ -944,10 +946,8 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             raise ValueError('no atoms defined')
         if self.cancalc:
             fname = self.localtmp + '/' + filename
-            #f = open(self.localtmp+'/pw.inp', 'w')
         else:
             fname = self.pwinp
-            #f = open(self.pwinp, 'w')
         f = open(fname, 'w')
 
         ### &CONTROL ###
@@ -1009,14 +1009,12 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                     if self.output['wf_collect']:
                         print('  wf_collect=.true.,', file=f)
         if self.opt_algorithm != 'ase3' or not self.cancalc:
-            # we basically ignore convergence of total energy differences between
-            # ionic steps and only consider fmax as in ase
+            # We basically ignore convergence of total energy differences
+            # between ionic steps and only consider fmax as in ase
             print('  etot_conv_thr=1d0,', file=f)
             print(
                 '  forc_conv_thr=' +
-                num2str(
-                    self.fmax /
-                    rydberg_over_bohr) +
+                utils.num2str(self.fmax / (Rydberg / Bohr)) +
                 ',',
                 file=f)
 
@@ -1025,60 +1023,60 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             if site.fifo:
                 print('  ase_fifo=.true.,', file=f)
 
-# automatically generated parameters
+        # automatically generated parameters
         if self.iprint is not None:
             print('  iprint=' + str(self.iprint) + ',', file=f)
         if self.tstress is not None:
-            print('  tstress=' + bool2str(self.tstress) + ',', file=f)
+            print('  tstress=' + utils.bool2str(self.tstress) + ',', file=f)
         if self.tprnfor is not None:
-            print('  tprnfor=' + bool2str(self.tprnfor) + ',', file=f)
+            print('  tprnfor=' + utils.bool2str(self.tprnfor) + ',', file=f)
         if self.dt is not None:
-            print('  dt=' + num2str(self.dt) + ',', file=f)
+            print('  dt=' + utils.num2str(self.dt) + ',', file=f)
         if self.lkpoint_dir is not None:
-            print('  lkpoint_dir=' + bool2str(self.lkpoint_dir) + ',', file=f)
+            print('  lkpoint_dir=' + utils.bool2str(self.lkpoint_dir) + ',', file=f)
         if self.max_seconds is not None:
-            print('  max_seconds=' + num2str(self.max_seconds) + ',', file=f)
+            print('  max_seconds=' + utils.num2str(self.max_seconds) + ',', file=f)
         if self.etot_conv_thr is not None:
             print(
                 '  etot_conv_thr=' +
-                num2str(
+                utils.num2str(
                     self.etot_conv_thr) +
                 ',',
                 file=f)
         if self.forc_conv_thr is not None:
             print(
                 '  forc_conv_thr=' +
-                num2str(
+                utils.num2str(
                     self.forc_conv_thr) +
                 ',',
                 file=f)
         if self.tefield is not None:
-            print('  tefield=' + bool2str(self.tefield) + ',', file=f)
+            print('  tefield=' + utils.bool2str(self.tefield) + ',', file=f)
         if self.dipfield is not None:
-            print('  dipfield=' + bool2str(self.dipfield) + ',', file=f)
+            print('  dipfield=' + utils.bool2str(self.dipfield) + ',', file=f)
         if self.lelfield is not None:
-            print('  lelfield=' + bool2str(self.lelfield) + ',', file=f)
+            print('  lelfield=' + utils.bool2str(self.lelfield) + ',', file=f)
         if self.nberrycyc is not None:
             print('  nberrycyc=' + str(self.nberrycyc) + ',', file=f)
         if self.lorbm is not None:
-            print('  lorbm=' + bool2str(self.lorbm) + ',', file=f)
+            print('  lorbm=' + utils.bool2str(self.lorbm) + ',', file=f)
         if self.lberry is not None:
-            print('  lberry=' + bool2str(self.lberry) + ',', file=f)
+            print('  lberry=' + utils.bool2str(self.lberry) + ',', file=f)
         if self.gdir is not None:
             print('  gdir=' + str(self.gdir) + ',', file=f)
         if self.nppstr is not None:
             print('  nppstr=' + str(self.nppstr) + ',', file=f)
         if self.lfcpopt is not None:
-            print('  lfcpopt=' + bool2str(self.lfcpopt) + ',', file=f)
+            print('  lfcpopt=' + utils.bool2str(self.lfcpopt) + ',', file=f)
 
         ### &SYSTEM ###
-        print('/\n&SYSTEM\n  ibrav=0,\n  celldm(1)=1.8897261245650618d0,', file=f)
+        print('/\n&SYSTEM\n  ibrav=0,', file=f)
         print('  nat=' + str(self.natoms) + ',', file=f)
         self.atoms2species()  # self.convertmag2species()
         print('  ntyp=' + str(self.nspecies) + ',',
               file=f)  # str(len(self.msym))+','
         if self.tot_charge is not None:
-            print('  tot_charge=' + num2str(self.tot_charge) + ',', file=f)
+            print('  tot_charge=' + utils.num2str(self.tot_charge) + ',', file=f)
         if self.calcmode != 'hund':
             inimagscale = 1.0
         else:
@@ -1088,7 +1086,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             self.totmag = self.summed_magmoms
             print(
                 '  tot_magnetization=' +
-                num2str(
+                utils.num2str(
                     self.totmag *
                     inimagscale) +
                 ',',
@@ -1097,20 +1095,19 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             if self.tot_magnetization != 'hund':
                 self.totmag = self.tot_magnetization
             else:
-                from .atomic_configs import hundmag
                 self.totmag = sum([hundmag(x)
                                    for x in self.atoms.get_chemical_symbols()])
             print(
                 '  tot_magnetization=' +
-                num2str(
+                utils.num2str(
                     self.totmag *
                     inimagscale) +
                 ',',
                 file=f)
-        print('  ecutwfc=' + num2str(self.pw / rydberg) + ',', file=f)
-        print('  ecutrho=' + num2str(self.dw / rydberg) + ',', file=f)
+        print('  ecutwfc=' + utils.num2str(self.pw / Rydberg) + ',', file=f)
+        print('  ecutrho=' + utils.num2str(self.dw / Rydberg) + ',', file=f)
         if self.fw is not None:
-            print('  ecutfock=' + num2str(self.fw / rydberg) + ',', file=f)
+            print('  ecutfock=' + utils.num2str(self.fw / Rydberg) + ',', file=f)
         # temporarily (and optionally) change number of bands for nscf calc.
         if overridenbands is not None:
             if self.nbands is None:
@@ -1141,9 +1138,9 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 print('  smearing=\'' + self.smearing + '\',', file=f)
                 print(
                     '  degauss=' +
-                    num2str(
+                    utils.num2str(
                         self.sigma /
-                        rydberg) +
+                        Rydberg) +
                     ',',
                     file=f)
             else:
@@ -1161,7 +1158,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 mag = spec.magmom / self.nel[el]
                 assert np.abs(mag) <= 1.  # magnetization oversaturated!!!
                 print('  starting_magnetization(%d)=%s,' %
-                      (spcount, num2str(float(mag))), file=f)
+                      (spcount, utils.num2str(float(mag))), file=f)
                 spcount += 1
         elif self.noncollinear:
             print('  noncolin=.true.,', file=f)
@@ -1176,7 +1173,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 mag = spec.magmom / self.nel[el]
                 assert np.abs(mag) <= 1.  # magnetization oversaturated!!!
                 print('  starting_magnetization(%d)=%s,' %
-                      (spcount, num2str(float(mag))), file=f)
+                      (spcount, utils.num2str(float(mag))), file=f)
                 spcount += 1
         if self.isolated is not None:
             print('  assume_isolated=\'' + self.isolated + '\',', file=f)
@@ -1213,9 +1210,9 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 eamp = self.dipole['eamp']
             else:
                 eamp = 0.0
-            print('  emaxpos=' + num2str(emaxpos) + ',', file=f)
-            print('  eopreg=' + num2str(eopreg) + ',', file=f)
-            print('  eamp=' + num2str(eamp) + ',', file=f)
+            print('  emaxpos=' + utils.num2str(emaxpos) + ',', file=f)
+            print('  eopreg=' + utils.num2str(eopreg) + ',', file=f)
+            print('  eamp=' + utils.num2str(eamp) + ',', file=f)
         if efield:
             if 'emaxpos' in self.field:
                 emaxpos = self.field['emaxpos']
@@ -1229,9 +1226,9 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 eamp = self.field['eamp']
             else:
                 eamp = 0.0
-            print('  emaxpos=' + num2str(emaxpos) + ',', file=f)
-            print('  eopreg=' + num2str(eopreg) + ',', file=f)
-            print('  eamp=' + num2str(eamp) + ',', file=f)
+            print('  emaxpos=' + utils.num2str(emaxpos) + ',', file=f)
+            print('  eopreg=' + utils.num2str(eopreg) + ',', file=f)
+            print('  eamp=' + utils.num2str(eamp) + ',', file=f)
         if self.U is not None or self.J is not None or self.U_alpha is not None:
             print('  lda_plus_u=.true.,', file=f)
             if self.J is not None:
@@ -1247,21 +1244,21 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                     el = spec.s
                     Ui = spec.U
                     print('  Hubbard_U(' + str(i + 1) + ')=' +
-                          num2str(Ui) + ',', file=f)
+                          utils.num2str(Ui) + ',', file=f)
             if self.J is not None:
                 for i, s in enumerate(self.species):
                     spec = self.specdict[s]
                     el = spec.s
                     Ji = spec.J
                     print('  Hubbard_J(1,' + str(i + 1) + ')=' +
-                          num2str(Ji) + ',', file=f)
+                          utils.num2str(Ji) + ',', file=f)
             if self.U_alpha is not None:
                 for i, s in enumerate(self.species):
                     spec = self.specdict[s]
                     el = spec.s
                     U_alphai = spec.U_alpha
                     print('  Hubbard_alpha(' + str(i + 1) + ')=' +
-                          num2str(U_alphai) + ',', file=f)
+                          utils.num2str(U_alphai) + ',', file=f)
 
         if self.nqx1 is not None:
             print('  nqx1=%d,' % self.nqx1, file=f)
@@ -1271,11 +1268,11 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             print('  nqx3=%d,' % self.nqx3, file=f)
 
         if self.exx_fraction is not None:
-            print('  exx_fraction=' + num2str(self.exx_fraction) + ',', file=f)
+            print('  exx_fraction=' + utils.num2str(self.exx_fraction) + ',', file=f)
         if self.screening_parameter is not None:
             print(
                 '  screening_parameter=' +
-                num2str(
+                utils.num2str(
                     self.screening_parameter) +
                 ',',
                 file=f)
@@ -1286,7 +1283,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 '\',',
                 file=f)
         if self.ecutvcut is not None:
-            print('  ecutvcut=' + num2str(self.ecutvcut) + ',', file=f)
+            print('  ecutvcut=' + utils.num2str(self.ecutvcut) + ',', file=f)
 
         if self.nosym:
             print('  nosym=.true.,', file=f)
@@ -1301,112 +1298,112 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             print('  nr2=%d,' % self.fft_grid[1], file=f)
             print('  nr3=%d,' % self.fft_grid[2], file=f)
 
-# automatically generated parameters
+        # automatically generated parameters
         if self.ecutfock is not None:
-            print('  ecutfock=' + num2str(self.ecutfock) + ',', file=f)
+            print('  ecutfock=' + utils.num2str(self.ecutfock) + ',', file=f)
         if self.force_symmorphic is not None:
             print(
                 '  force_symmorphic=' +
-                bool2str(
+                utils.bool2str(
                     self.force_symmorphic) +
                 ',',
                 file=f)
         if self.use_all_frac is not None:
             print(
                 '  use_all_frac=' +
-                bool2str(
+                utils.bool2str(
                     self.use_all_frac) +
                 ',',
                 file=f)
         if self.one_atom_occupations is not None:
             print(
                 '  one_atom_occupations=' +
-                bool2str(
+                utils.bool2str(
                     self.one_atom_occupations) +
                 ',',
                 file=f)
         if self.starting_spin_angle is not None:
             print(
                 '  starting_spin_angle=' +
-                bool2str(
+                utils.bool2str(
                     self.starting_spin_angle) +
                 ',',
                 file=f)
         if self.degauss is not None:
-            print('  degauss=' + num2str(self.degauss) + ',', file=f)
+            print('  degauss=' + utils.num2str(self.degauss) + ',', file=f)
         if self.nspin is not None:
             print('  nspin=' + str(self.nspin) + ',', file=f)
         if self.ecfixed is not None:
-            print('  ecfixed=' + num2str(self.ecfixed) + ',', file=f)
+            print('  ecfixed=' + utils.num2str(self.ecfixed) + ',', file=f)
         if self.qcutz is not None:
-            print('  qcutz=' + num2str(self.qcutz) + ',', file=f)
+            print('  qcutz=' + utils.num2str(self.qcutz) + ',', file=f)
         if self.q2sigma is not None:
-            print('  q2sigma=' + num2str(self.q2sigma) + ',', file=f)
+            print('  q2sigma=' + utils.num2str(self.q2sigma) + ',', file=f)
         if self.x_gamma_extrapolation is not None:
             print(
                 '  x_gamma_extrapolation=' +
-                bool2str(
+                utils.bool2str(
                     self.x_gamma_extrapolation) +
                 ',',
                 file=f)
         if self.lda_plus_u is not None:
-            print('  lda_plus_u=' + bool2str(self.lda_plus_u) + ',', file=f)
+            print('  lda_plus_u=' + utils.bool2str(self.lda_plus_u) + ',', file=f)
         if self.lda_plus_u_kind is not None:
             print('  lda_plus_u_kind=' + str(self.lda_plus_u_kind) + ',', file=f)
         if self.edir is not None:
             print('  edir=' + str(self.edir) + ',', file=f)
         if self.emaxpos is not None:
-            print('  emaxpos=' + num2str(self.emaxpos) + ',', file=f)
+            print('  emaxpos=' + utils.num2str(self.emaxpos) + ',', file=f)
         if self.eopreg is not None:
-            print('  eopreg=' + num2str(self.eopreg) + ',', file=f)
+            print('  eopreg=' + utils.num2str(self.eopreg) + ',', file=f)
         if self.eamp is not None:
-            print('  eamp=' + num2str(self.eamp) + ',', file=f)
+            print('  eamp=' + utils.num2str(self.eamp) + ',', file=f)
         if self.clambda is not None:
-            print('  lambda=' + num2str(self.clambda) + ',', file=f)
+            print('  lambda=' + utils.num2str(self.clambda) + ',', file=f)
         if self.report is not None:
             print('  report=' + str(self.report) + ',', file=f)
         if self.lspinorb is not None:
-            print('  lspinorb=' + bool2str(self.lspinorb) + ',', file=f)
+            print('  lspinorb=' + utils.bool2str(self.lspinorb) + ',', file=f)
         if self.esm_bc is not None:
             print('  esm_bc=\'' + self.esm_bc + '\',', file=f)
         if self.esm_w is not None:
-            print('  esm_w=' + num2str(self.esm_w) + ',', file=f)
+            print('  esm_w=' + utils.num2str(self.esm_w) + ',', file=f)
         if self.esm_efield is not None:
-            print('  esm_efield=' + num2str(self.esm_efield) + ',', file=f)
+            print('  esm_efield=' + utils.num2str(self.esm_efield) + ',', file=f)
         if self.esm_nfit is not None:
             print('  esm_nfit=' + str(self.esm_nfit) + ',', file=f)
         if self.london is not None:
-            print('  london=' + bool2str(self.london) + ',', file=f)
+            print('  london=' + utils.bool2str(self.london) + ',', file=f)
         if self.london_s6 is not None:
-            print('  london_s6=' + num2str(self.london_s6) + ',', file=f)
+            print('  london_s6=' + utils.num2str(self.london_s6) + ',', file=f)
         if self.london_rcut is not None:
-            print('  london_rcut=' + num2str(self.london_rcut) + ',', file=f)
+            print('  london_rcut=' + utils.num2str(self.london_rcut) + ',', file=f)
         if self.xdm is not None:
-            print('  xdm=' + bool2str(self.xdm) + ',', file=f)
+            print('  xdm=' + utils.bool2str(self.xdm) + ',', file=f)
         if self.xdm_a1 is not None:
-            print('  xdm_a1=' + num2str(self.xdm_a1) + ',', file=f)
+            print('  xdm_a1=' + utils.num2str(self.xdm_a1) + ',', file=f)
         if self.xdm_a2 is not None:
-            print('  xdm_a2=' + num2str(self.xdm_a2) + ',', file=f)
+            print('  xdm_a2=' + utils.num2str(self.xdm_a2) + ',', file=f)
         if self.vdw_corr is not None:
             print('  vdw_corr=\'' + self.vdw_corr + '\',', file=f)
         if self.ts_vdw_econv_thr is not None:
             print(
                 '  ts_vdw_econv_thr=' +
-                num2str(
+                utils.num2str(
                     self.ts_vdw_econv_thr) +
                 ',',
                 file=f)
         if self.ts_vdw_isolated is not None:
             print(
                 '  ts_vdw_isolated=' +
-                bool2str(
+                utils.bool2str(
                     self.tsw_vdw_isolated) +
                 ',',
                 file=f)
         if self.fcp_mu is not None:
-            print('  fcp_mu=' + num2str(self.fcp_mu) + ',', file=f)
+            print('  fcp_mu=' + utils.num2str(self.fcp_mu) + ',', file=f)
         if self.esm_a is not None:
-            print('  esm_a=' + num2str(self.esm_a) + ',', file=f)
+            print('  esm_a=' + utils.num2str(self.esm_a) + ',', file=f)
 
         ### &ELECTRONS ###
         print('/\n&ELECTRONS', file=f)
@@ -1417,14 +1414,14 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             pass
 
         if self.calcmode != 'hund':
-            print('  conv_thr=' + num2str(self.conv_thr) + ',', file=f)
+            print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
         else:
-            print('  conv_thr=' + num2str(self.conv_thr * 500.) + ',', file=f)
+            print('  conv_thr=' + utils.num2str(self.conv_thr * 500.) + ',', file=f)
         for x in list(self.convergence.keys()):
             if x == 'mixing':
                 print(
                     '  mixing_beta=' +
-                    num2str(
+                    utils.num2str(
                         self.convergence[x]) +
                     ',',
                     file=f)
@@ -1445,42 +1442,42 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         if self.startingwfc is not None and self.calcmode != 'hund':
             print('  startingwfc=\'' + self.startingwfc + '\',', file=f)
 
-# automatically generated parameters
+        # automatically generated parameters
         if self.electron_maxstep is not None:
             print('  electron_maxstep=' +
                   str(self.electron_maxstep) + ',', file=f)
         if self.scf_must_converge is not None:
             print(
                 '  scf_must_converge=' +
-                bool2str(
+                utils.bool2str(
                     self.scf_must_converge) +
                 ',',
                 file=f)
         if self.conv_thr is not None:
-            print('  conv_thr=' + num2str(self.conv_thr) + ',', file=f)
+            print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
         if self.adaptive_thr is not None:
             print(
                 '  adaptive_thr=' +
-                bool2str(
+                utils.bool2str(
                     self.adaptive_thr) +
                 ',',
                 file=f)
         if self.conv_thr_init is not None:
             print(
                 '  conv_thr_init=' +
-                num2str(
+                utils.num2str(
                     self.conv_thr_init) +
                 ',',
                 file=f)
         if self.conv_thr_multi is not None:
             print(
                 '  conv_thr_multi=' +
-                num2str(
+                utils.num2str(
                     self.conv_thr_multi) +
                 ',',
                 file=f)
         if self.mixing_beta is not None:
-            print('  mixing_beta=' + num2str(self.mixing_beta) + ',', file=f)
+            print('  mixing_beta=' + utils.num2str(self.mixing_beta) + ',', file=f)
         if self.mixing_ndim is not None:
             print('  mixing_ndim=' + str(self.mixing_ndim) + ',', file=f)
         if self.mixing_fixed_ns is not None:
@@ -1490,7 +1487,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         if self.diago_thr_init is not None:
             print(
                 '  diago_thr_init=' +
-                num2str(
+                utils.num2str(
                     self.diago_thr_init) +
                 ',',
                 file=f)
@@ -1503,14 +1500,14 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         if self.diago_full_acc is not None:
             print(
                 '  diago_full_acc=' +
-                bool2str(
+                utils.bool2str(
                     self.diago_full_acc) +
                 ',',
                 file=f)
         if self.efield is not None:
-            print('  efield=' + num2str(self.efield) + ',', file=f)
+            print('  efield=' + utils.num2str(self.efield) + ',', file=f)
         if self.tqr is not None:
-            print('  tqr=' + bool2str(self.tqr) + ',', file=f)
+            print('  tqr=' + utils.bool2str(self.tqr) + ',', file=f)
 
         ### &IONS ###
         if self.opt_algorithm == 'ase3' or not ionssec:
@@ -1547,53 +1544,53 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 '\',',
                 file=f)
 
-# automatically generated parameters
+        # automatically generated parameters
         if self.remove_rigid_rot is not None:
             print(
                 '  remove_rigid_rot=' +
-                bool2str(
+                utils.bool2str(
                     self.remove_rigid_rot) +
                 ',',
                 file=f)
         if self.tempw is not None:
-            print('  tempw=' + num2str(self.tempw) + ',', file=f)
+            print('  tempw=' + utils.num2str(self.tempw) + ',', file=f)
         if self.tolp is not None:
-            print('  tolp=' + num2str(self.tolp) + ',', file=f)
+            print('  tolp=' + utils.num2str(self.tolp) + ',', file=f)
         if self.delta_t is not None:
-            print('  delta_t=' + num2str(self.delta_t) + ',', file=f)
+            print('  delta_t=' + utils.num2str(self.delta_t) + ',', file=f)
         if self.nraise is not None:
             print('  nraise=' + str(self.nraise) + ',', file=f)
         if self.refold_pos is not None:
-            print('  refold_pos=' + bool2str(self.refold_pos) + ',', file=f)
+            print('  refold_pos=' + utils.bool2str(self.refold_pos) + ',', file=f)
         if self.upscale is not None:
-            print('  upscale=' + num2str(self.upscale) + ',', file=f)
+            print('  upscale=' + utils.num2str(self.upscale) + ',', file=f)
         if self.bfgs_ndim is not None:
             print('  bfgs_ndim=' + str(self.bfgs_ndim) + ',', file=f)
         if self.trust_radius_max is not None:
             print(
                 '  trust_radius_max=' +
-                num2str(
+                utils.num2str(
                     self.trust_radius_max) +
                 ',',
                 file=f)
         if self.trust_radius_min is not None:
             print(
                 '  trust_radius_min=' +
-                num2str(
+                utils.num2str(
                     self.trust_radius_min) +
                 ',',
                 file=f)
         if self.trust_radius_ini is not None:
             print(
                 '  trust_radius_ini=' +
-                num2str(
+                utils.num2str(
                     self.trust_radius_ini) +
                 ',',
                 file=f)
         if self.w_1 is not None:
-            print('  w_1=' + num2str(self.w_1) + ',', file=f)
+            print('  w_1=' + utils.num2str(self.w_1) + ',', file=f)
         if self.w_2 is not None:
-            print('  w_2=' + num2str(self.w_2) + ',', file=f)
+            print('  w_2=' + utils.num2str(self.w_2) + ',', file=f)
 
         ### &CELL ###
         if self.cell_dynamics is not None:
@@ -1603,13 +1600,13 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 '\',',
                 file=f)
             if self.press is not None:
-                print('  press=' + num2str(self.press) + ',', file=f)
+                print('  press=' + utils.num2str(self.press) + ',', file=f)
             if self.dpress is not None:
-                print('  press_conv_thr=' + num2str(self.dpress) + ',', file=f)
+                print('  press_conv_thr=' + utils.num2str(self.dpress) + ',', file=f)
             if self.cell_factor is not None:
                 print(
                     '  cell_factor=' +
-                    num2str(
+                    utils.num2str(
                         self.cell_factor) +
                     ',',
                     file=f)
@@ -1618,17 +1615,17 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
 
 # automatically generated parameters
         if self.wmass is not None:
-            print('  wmass=' + num2str(self.wmass) + ',', file=f)
+            print('  wmass=' + utils.num2str(self.wmass) + ',', file=f)
         if self.press_conv_thr is not None:
             print(
                 '  press_conv_thr=' +
-                num2str(
+                utils.num2str(
                     self.press_conv_thr) +
                 ',',
                 file=f)
 
         # CELL_PARAMETERS
-        print('/\nCELL_PARAMETERS', file=f)
+        print('/\nCELL_PARAMETERS {angstrom}', file=f)
         for i in range(3):
             print('%21.15fd0 %21.15fd0 %21.15fd0' %
                   tuple(self.atoms.cell[i]), file=f)
@@ -1636,7 +1633,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         print('ATOMIC_SPECIES', file=f)
         for species in self.species:   # PSP ORDERING FOLLOWS SPECIESINDEX
             spec = self.specdict[species]
-            print(species, num2str(spec.mass), spec.s + '.UPF', file=f)
+            print(species, utils.num2str(spec.mass), spec.s + '.UPF', file=f)
 
         print('ATOMIC_POSITIONS {crystal}', file=f)
         if len(simpleconstr) == 0:
@@ -1662,7 +1659,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             if self.constr_tol is None:
                 print(len(otherconstr), file=f)
             else:
-                print(len(otherconstr), num2str(self.constr_tol), file=f)
+                print(len(otherconstr), utils.num2str(self.constr_tol), file=f)
             for x in otherconstr:
                 print(x, file=f)
 
@@ -1903,7 +1900,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 'vc-md',
                 'md',
                     'hund'):
-                self.energy_free = float(a.split()[-2]) * rydberg
+                self.energy_free = float(a.split()[-2]) * Rydberg
                 # get S*T correction (there is none for Marzari-Vanderbilt=Cold
                 # smearing)
                 if self.occupations == 'smearing' and self.calcmode != 'hund' and self.smearing[0].upper(
@@ -1921,7 +1918,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                         self.ST = 0.0
                         self.energy_zero = self.energy_free
                     else:
-                        self.ST = -float(a.split()[-2]) * rydberg
+                        self.ST = -float(a.split()[-2]) * Rydberg
                         self.energy_zero = self.energy_free + 0.5 * self.ST
                 else:
                     self.ST = 0.0
@@ -2003,7 +2000,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                 f = open(self.log, 'r')
                 for i in range(n):
                     f.readline()
-                self.energy_free = float(f.readline().split()[-2]) * rydberg
+                self.energy_free = float(f.readline().split()[-2]) * Rydberg
                 # get S*T correction (there is none for Marzari-Vanderbilt=Cold
                 # smearing)
                 if self.occupations == 'smearing' and self.calcmode != 'hund' and self.smearing[0].upper(
@@ -2019,7 +2016,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                         self.ST = 0.0
                         self.energy_zero = self.energy_free
                     else:
-                        self.ST = -float(a.split()[-2]) * rydberg
+                        self.ST = -float(a.split()[-2]) * Rydberg
                         self.energy_zero = self.energy_free + 0.5 * self.ST
                 else:
                     self.ST = 0.0
@@ -2131,10 +2128,10 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                         "sed s/occupations.*/occupations=\\'fixed\\',/ <" +
                         self.localtmp +
                         "/pw.inp | sed s/ELECTRONS/ELECTRONS\\\\n\ \ startingwfc=\\'file\\',\\\\n\ \ startingpot=\\'file\\',/ | sed s/conv_thr.*/conv_thr=" +
-                        num2str(
+                        utils.num2str(
                             self.conv_thr) +
                         ",/ | sed s/tot_magnetization.*/tot_magnetization=" +
-                        num2str(
+                        utils.num2str(
                             self.totmag) +
                         ",/ >" +
                         self.localtmp +
@@ -2180,10 +2177,10 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                         "sed s/occupations.*/occupations=\\'fixed\\',/ <" +
                         self.localtmp +
                         "/pw.inp | sed s/ELECTRONS/ELECTRONS\\\\n\ \ startingwfc=\\'file\\',\\\\n\ \ startingpot=\\'file\\',/ | sed s/conv_thr.*/conv_thr=" +
-                        num2str(
+                        utils.num2str(
                             self.conv_thr) +
                         ",/ | sed s/tot_magnetization.*/tot_magnetization=" +
-                        num2str(
+                        utils.num2str(
                             self.totmag) +
                         ",/ >" +
                         self.localtmp +
@@ -2386,8 +2383,6 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         returns Atoms object according to a structure
         optimized internally by quantum espresso
         """
-        from ase import Atoms
-
         self.stop()
 
         p = os.popen('grep -a -n Giannozzi ' + self.log + '| tail -1', 'r')
@@ -2477,7 +2472,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         p.close()
         xc = np.array([])
         for i, l in enumerate(s):
-            l_ = float(l.split(":")[-1]) * rydberg
+            l_ = float(l.split(":")[-1]) * Rydberg
             xc = np.append(xc, l_)
         assert len(xc) == 32
         return xc
@@ -2765,7 +2760,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         print('&INPUTPP\n  prefix=\'calc\',\n  outdir=\'.\',', file=f)
         for a, b in inputpp:
             if type(b) == float:
-                c = num2str(b)
+                c = utils.num2str(b)
             elif type(b) == str:
                 c = "'" + b + "'"
             else:
@@ -2777,7 +2772,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             (iflag, output_format), file=f)
         for a, b in plot:
             if type(b) == float:
-                c = num2str(b)
+                c = utils.num2str(b)
             elif type(b) == str:
                 c = "'" + b + "'"
             else:
@@ -2853,7 +2848,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
 
         Quantum Espresso with the tetrahedron method for PDOS can be
         obtained here:
-svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espresso-dynpy-beef
+        svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espresso-dynpy-beef
         """
 
         efermi = self.get_fermi_level()
@@ -2892,17 +2887,17 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         f = open(self.localtmp + '/pdos.inp', 'w')
         print('&PROJWFC\n  prefix=\'calc\',\n  outdir=\'.\',', file=f)
         if Emin is not None:
-            print('  Emin = ' + num2str(Emin + efermi) + ',', file=f)
+            print('  Emin = ' + utils.num2str(Emin + efermi) + ',', file=f)
         if Emax is not None:
-            print('  Emax = ' + num2str(Emax + efermi) + ',', file=f)
+            print('  Emax = ' + utils.num2str(Emax + efermi) + ',', file=f)
         if DeltaE is not None:
-            print('  DeltaE = ' + num2str(DeltaE) + ',', file=f)
+            print('  DeltaE = ' + utils.num2str(DeltaE) + ',', file=f)
         if slab:
             print('  lslab = .true.,', file=f)
         if ngauss is not None:
             print('  ngauss = ' + str(ngauss) + ',', file=f)
         if sigma is not None:
-            print('  degauss = ' + num2str(sigma / rydberg) + ',', file=f)
+            print('  degauss = ' + utils.num2str(sigma / Rydberg) + ',', file=f)
         print('/', file=f)
         f.close()
         # run projwfc.x
@@ -3000,8 +2995,8 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             f = open(self.localtmp + '/pdos.inp', 'w')
             print('&PROJWFC\n  prefix=\'calc\',\n  outdir=\'.\',', file=f)
             print('  filpdos = \'projtmp\',', file=f)
-            print('  Emin = ' + num2str(-0.3 + efermi) + ',', file=f)
-            print('  Emax = ' + num2str(-0.2 + efermi) + ',', file=f)
+            print('  Emin = ' + utils.num2str(-0.3 + efermi) + ',', file=f)
+            print('  Emax = ' + utils.num2str(-0.2 + efermi) + ',', file=f)
             print('  DeltaE = 0.1d0,', file=f)
             print('/', file=f)
             f.close()
@@ -3292,7 +3287,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                          piperead=True, parallel=False)
         origin, cell, data = self.read_3d_grid(p, 'totalpot.log')
         p.close()
-        return (origin, cell, data * rydberg)
+        return (origin, cell, data * Rydberg)
 
     def xsf_total_potential(self, xsf, spin='both'):
         """
@@ -3323,7 +3318,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                          piperead=True, parallel=False)
         origin, cell, data = self.read_3d_grid(p, 'vbare.log')
         p.close()
-        return (origin, cell, data * rydberg)
+        return (origin, cell, data * Rydberg)
 
     def xsf_local_ionic_potential(self, xsf):
         """
@@ -3385,7 +3380,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         Returns (origin,cell,stmdata).
         """
         p = self.run_ppx('stm.inp',
-                         inputpp=[['plot_num', 5], ['sample_bias', bias / rydberg]],
+                         inputpp=[['plot_num', 5], ['sample_bias', bias / Rydberg]],
                          piperead=True, parallel=False)
         origin, cell, data = self.read_3d_grid(p, 'stm.log')
         p.close()
@@ -3397,7 +3392,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         to an input file for xcrysden.
         """
         self.run_ppx('stm.inp',
-                     inputpp=[['plot_num', 5], ['sample_bias', bias / rydberg]],
+                     inputpp=[['plot_num', 5], ['sample_bias', bias / Rydberg]],
                      plot=[['fileout', self.topath(xsf)]],
                      parallel=False, log='stm.log')
 
@@ -3615,7 +3610,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                          piperead=True, parallel=False)
         origin, cell, data = self.read_3d_grid(p, 'potih.log')
         p.close()
-        return (origin, cell, data * rydberg)
+        return (origin, cell, data * Rydberg)
 
     def xsf_ionic_and_hartree_potential(self, xsf):
         """
@@ -3637,7 +3632,7 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
                          piperead=True, parallel=False)
         origin, cell, data = self.read_3d_grid(p, 'sawtooth.log')
         p.close()
-        return (origin, cell, data * rydberg)
+        return (origin, cell, data * Rydberg)
 
     def xsf_sawtooth_potential(self, xsf):
         """
@@ -3907,13 +3902,13 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
             vacuum_energy2 = average_data[vac_index2][1]
             wf = [
                 vacuum_energy1 *
-                rydberg -
+                Rydberg -
                 fermi_energy,
                 vacuum_energy2 *
-                rydberg -
+                Rydberg -
                 fermi_energy]
         else:
-            wf = vacuum_energy * rydberg - fermi_energy
+            wf = vacuum_energy * Rydberg - fermi_energy
 
         return wf
 
@@ -3951,7 +3946,6 @@ svn co --username anonymous http://qeforge.qe-forge.org/svn/q-e/branches/espress
         self.convergence = convsave
 
     def get_world(self):
-        from .worldstub import world
         return world(site.nprocs)
 
     def get_number_of_scf_steps(self, all=False):

@@ -11,8 +11,8 @@ import numpy as np
 from ase import constraints
 
 
-class specobj:
-    # small species class containing the attributes of a species
+class SpecObject:
+    """Small species class containing the attributes of a species."""
     def __init__(self, s='X', mass=0., magmom=0., U=0., J=0., U_alpha=0.):
         self.s = s
         self.mass = mass
