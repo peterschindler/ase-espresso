@@ -6,7 +6,6 @@
 # or http://www.gnu.org/copyleft/gpl.txt .
 #****************************************************************************
 
-
 from ase.calculators.general import Calculator
 from espresso import espresso
 import numpy as np
@@ -20,10 +19,7 @@ class vibespresso(Calculator):
     the first calculation to speed up vibrational calculations.
     """
 
-    def __init__(self,
-                 outdirprefix='out',
-                 **kwargs
-                 ):
+    def __init__(self, outdirprefix='out', **kwargs):
         """
         In addition to the parameters of a standard espresso calculator,
         outdirprefix (default: 'out') can be specified, which will be the

@@ -6,7 +6,6 @@
 # or http://www.gnu.org/copyleft/gpl.txt .
 #****************************************************************************
 
-
 from espresso import espresso, KohnShamConvergenceError
 from sys import stderr
 
@@ -25,8 +24,7 @@ class multiespresso:
                  ncalc=1,
                  outdirprefix='out',
                  mtxt='multilog.txt',
-                 **kwargs
-                 ):
+                 **kwargs):
         """
         In addition to the parameters of a standard espresso calculator,
         the number ncalc (default 1) of espresso calculators to be spawned
@@ -78,21 +76,21 @@ class multiespresso:
                         else:
                             if a[0] != '!':
                                 self.done[i] = False
-                                print >>s, 'current free energy (calc. %3d; in scf cycle) :' % i, a.split(
+                                print >> s, 'current free energy (calc. %3d; in scf cycle) :' % i, a.split(
                                 )[-2], 'Ry'
                             else:
                                 self.done[i] = True
-                                print >>s, 'current free energy (calc. %3d; ionic step) :  ' % i, a.split(
+                                print >> s, 'current free energy (calc. %3d; ionic step) :  ' % i, a.split(
                                 )[-2], 'Ry'
                             s.flush()
-        print >>s, ''
+        print >> s, ''
         s.close()
 
     def set_images(self, images):
         if len(images) != self.ncalc:
             raise ValueError(
-                'number of images (%d) doesn\'t match number of calculators (%d)' %
-                (len(images), self.ncalc))
+                'number of images (%d) doesn\'t match number of calculators (%d)'
+                % (len(images), self.ncalc))
         for i in range(self.ncalc):
             images[i].set_calculator(self.calculators[i])
         self.images = images

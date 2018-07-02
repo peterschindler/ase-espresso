@@ -28,10 +28,5 @@ else:
 
 from os import system
 exit(
-    system(
-        'make doinstall instdir=' +
-        instdir +
-        ' py=' +
-        executable +
-        ' pylib=' +
-        pylib))
+    system('make doinstall instdir=' + instdir + ' py=' + executable +
+           ' pylib=' + pylib))
