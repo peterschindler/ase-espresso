@@ -11,6 +11,8 @@ from ase.calculators.calculator import kptdensity2monkhorstpack
 from ase.calculators.calculator import FileIOCalculator
 from . import espsite
 from . import subdirs
+from .postprocess import PostProcess
+from .io import Mixins
 import numpy as np
 import atexit
 
@@ -32,7 +34,7 @@ class KohnShamConvergenceError(ConvergenceError):
     pass
 
 
-class Espresso(FileIOCalculator):
+class Espresso(FileIOCalculator, PostProcess, Mixins):
     """ASE interface for Quantum Espresso"""
 
     implemented_properties = [
@@ -42,7 +44,6 @@ class Espresso(FileIOCalculator):
     def __init__(
             self,
             atoms=None,
-            exedir='',  # espresso binary folder, if "./" just take the current environmental variable
             pw=350.0,
             dw=None,
             fw=None,
@@ -56,8 +57,8 @@ class Espresso(FileIOCalculator):
             constr_tol=None,
             fmax=0.05,
             cell_dynamics=None,
-            press=None,  # target pressure
-            dpress=None,  # convergence limit towards target pressure
+            press=None,
+            dpress=None,
             cell_factor=None,
             cell_dofree=None,
             dontcalcforces=False,
@@ -78,10 +79,6 @@ class Espresso(FileIOCalculator):
             sigma=0.1,
             fix_magmom=False,
             isolated=None,
-            U=None,
-            J=None,
-            U_alpha=None,
-            U_projection_type='atomic',
             nqx1=None,
             nqx2=None,
             nqx3=None,
@@ -89,17 +86,17 @@ class Espresso(FileIOCalculator):
             screening_parameter=None,
             exxdiv_treatment=None,
             ecutvcut=None,
-            tot_charge=None,  # +1 means 1 e missing, -1 means 1 extra e
-            charge=None,  # overrides tot_charge (ase 3.7+ compatibility)
+            tot_charge=None,
+            charge=None,
             tot_magnetization=-1,
-            occupations='smearing',  # 'smearing', 'fixed', 'tetrahedra'
+            occupations='smearing',
             dipole={'status': False},
             field={'status': False},
-            disk_io: 'default',
-            wf_collect: False,
-            avoidio: False,  # ND
-            removewf: True,  # ND
-            removesave: False,  # ND
+            disk_io='default',
+            wf_collect=False,
+            avoidio=False,  # ND
+            removewf=True,  # ND
+            removesave=False,  # ND
             convergence={
                 'energy': 1e-6,
                 'mixing': 0.7,
@@ -110,13 +107,10 @@ class Espresso(FileIOCalculator):
             startingwfc=None,
             ion_positions=None,
             parflags=None,
-            single_calculator=True,  # if True, only one espresso job will be running
-            procrange=None,  # let this espresso calculator run only on a subset of the requested cpus
-            numcalcs=None,  # used / set by multiespresso class
-            alwayscreatenewarrayforforces=True,
+            single_calculator=True,
+            procrange=None,
+            numcalcs=None,
             verbose='low',
-            # automatically generated list of parameters
-            # some coincide with ase-style names
             iprint=None,
             tstress=None,
             tprnfor=None,
@@ -208,8 +202,7 @@ class Espresso(FileIOCalculator):
             restart=None,
             ignore_bad_restart_file=False,
             label=None,
-            command=None,
-    ):
+            command=None):
         """
     Construct an ase-espresso calculator.
     Parameters (with defaults in parentheses):
@@ -344,11 +337,13 @@ class Espresso(FileIOCalculator):
         - 'eopreg':float percentage wrt. unit cell where potential decreases
         - 'eamp':0 (by default) if non-zero overcompensate dipole: i.e. apply
           a field
-     output ( {'disk_io':'default',  # how often espresso writes wavefunctions to disk
-               'avoidio':False,  # will overwrite disk_io parameter if True
-               'removewf':True,
-               'removesave':False,
-               'wf_collect':False} )
+     disk_io ('default)
+        How often espresso writes wavefunctions to disk
+     avoidio (False)
+        Will overwrite disk_io parameter if True
+     removewf (True)
+     removesave (False)
+     wf_collect (False)
         control how much io is used by espresso;
         'removewf':True means wave functions are deleted in scratch area before
         job is done and data is copied back to submission directory
@@ -375,17 +370,21 @@ class Espresso(FileIOCalculator):
         E.g. parflags='-npool 2' will distribute k-points (and spin if
         spin-polarized) over two nodes.
         """
-        self.exedir = exedir
         self.pw = pw
         self.dw = dw
         self.fw = fw
         self.nbands = nbands
-        if type(kpts) == float or type(kpts) == int:
+        if isinstance(kpts, (float, int)):
             kpts = kptdensity2monkhorstpack(atoms, kpts)
         elif isinstance(kpts, str):
             assert kpts == 'gamma'
         else:
             assert len(kpts) == 3
+        self.disk_io = disk_io
+        self.avoidio = avoidio
+        self.removewf = removewf
+        self.removesave = removesave
+        self.wf_collect = wf_collect
         self.kpts = kpts
         self.kptshift = kptshift
         self.fft_grid = fft_grid  # RK
@@ -408,7 +407,7 @@ class Espresso(FileIOCalculator):
         self.beefensemble = beefensemble
         self.printensemble = printensemble
         if isinstance(smearing, str):
-            self.smearing = str(smearing)
+            self.smearing = smearing
             self.sigma = sigma
         else:
             self.smearing = smearing[0]
@@ -429,7 +428,6 @@ class Espresso(FileIOCalculator):
         self.psppath = psppath
         self.dipole = dipole
         self.field = field
-        self.output = output
         self.convergence = convergence
         self.startingpot = startingpot
         self.startingwfc = startingwfc
@@ -441,7 +439,6 @@ class Espresso(FileIOCalculator):
         self.screening_parameter = screening_parameter
         self.exxdiv_treatment = exxdiv_treatment
         self.ecutvcut = ecutvcut
-        self.newforcearray = alwayscreatenewarrayforforces
         self.parflags = ''
         self.serflags = ''
         if parflags is not None:
@@ -543,7 +540,6 @@ class Espresso(FileIOCalculator):
         self.wmass = wmass
         self.press_conv_thr = press_conv_thr
         self.results = results
-        self.name = name
 
         # give original espresso style input names
         # preference over ase / dacapo - style names
@@ -557,8 +553,6 @@ class Espresso(FileIOCalculator):
         # Variables that cannot be set by inputs
         self.nvalence = None
         self.nel = None
-
-        self.parameters = {}
 
         # Auto create variables from input
         self.input_update()
@@ -631,9 +625,8 @@ class Espresso(FileIOCalculator):
         self.log = self.localtmp + '/log'
         self.scratch = subdirs.mkscratch(self.localtmp, site)
 
-        if self.output is not None:
-            if 'removewf' in self.output:
-                removewf = self.output['removewf']
+        if 'removewf' in self.removewf:
+            removewf = self.output['removewf']
             else:
                 removewf = True
             if 'removesave' in self.output:
@@ -662,10 +655,7 @@ class Espresso(FileIOCalculator):
 
     def get_forces(self, atoms):
         self.update(atoms)
-        if self.newforcearray:
-            return self.forces.copy()
-        else:
-            return self.forces
+        return self.forces.copy()
 
     def get_stress(self, dummyself=None):
         """Returns stress tensor in Voigt notation """

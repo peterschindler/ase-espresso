@@ -1,7 +1,7 @@
 from ase.units import Rydberg, Bohr, Hartree
 
 
-class PostProcess():
+class PostProcess:
 
     def run_espressox(self,
                       binary,
@@ -553,7 +553,7 @@ class PostProcess():
                 'log': log}
 
         p = self.run_ppx(
-            ,
+            'ldosef.inp',
             inputpp=[['plot_num', 3]],
             piperead=True,
             parallel=False)

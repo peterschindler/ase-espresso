@@ -22,19 +22,18 @@ class SpecObject:
         self.U_alpha = U_alpha
 
 
-# add 'd0' to floating point number to avoid random trailing digits in
-# Fortran input routines
 def num2str(x):
+    """Add 'd0' to floating point number to avoid random trailing digits in
+    Fortran input routines
+    """
     s = str(x)
     if s.find('e') < 0:
         s += 'd0'
     return s
 
 
-# convert python to fortran logical
-
-
 def bool2str(x):
+    """Convert python to fortran logical"""
     if x:
         return '.true.'
     else:
@@ -104,3 +103,19 @@ def convert_constraints(atoms):
         return forcefilter, otherconstr
     else:
         return [], []
+
+
+def grepy(filename, search, instance=-1):
+    results = []
+    with open(filename, 'r') as f:
+        for line in f:
+            if re.search(search, line):
+                results += [line]
+
+    if not results:
+        return None
+
+    if instance:
+        return results[instance]
+    else:
+        return results
