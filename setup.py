@@ -10,8 +10,8 @@ from sys import argv, executable, exit, stderr
 
 if len(argv) < 2 or len(argv) > 3 or argv[1] != 'install' or len(
         argv) == 3 and argv[2][:9] != '--prefix=':
-    print >>stderr, 'usage: ' + executable + ' ' + \
-        argv[0] + ' install [--prefix=installation-directory]'
+    print('usage: ' + executable + ' ' + \
+        argv[0] + ' install [--prefix=installation-directory]', file=stderr)
     exit(1)
 
 from os import path

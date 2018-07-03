@@ -76,14 +76,14 @@ class multiespresso:
                         else:
                             if a[0] != '!':
                                 self.done[i] = False
-                                print >> s, 'current free energy (calc. %3d; in scf cycle) :' % i, a.split(
-                                )[-2], 'Ry'
+                                print('current free energy (calc. %3d; in scf cycle) :' % i, a.split(
+                                )[-2], 'Ry', file=s)
                             else:
                                 self.done[i] = True
-                                print >> s, 'current free energy (calc. %3d; ionic step) :  ' % i, a.split(
-                                )[-2], 'Ry'
+                                print('current free energy (calc. %3d; ionic step) :  ' % i, a.split(
+                                )[-2], 'Ry', file=s)
                             s.flush()
-        print >> s, ''
+        print('', file=s)
         s.close()
 
     def set_images(self, images):
