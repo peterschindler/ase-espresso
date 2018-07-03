@@ -9,7 +9,7 @@ class config:
         self.scratch = '.'
         self.submitdir = '.'
         self.batch = False
-        self.mpi_not_setup = True
+        # self.mpi_not_setup = True
         if 'ESP_PSP_PATH' not in os.environ:
             os.environ['ESP_PSP_PATH'] = '.'
 
