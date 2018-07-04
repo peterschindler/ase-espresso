@@ -9,21 +9,13 @@
 import os
 from ase.calculators.calculator import kptdensity2monkhorstpack
 from ase.calculators.calculator import FileIOCalculator
-from . import espsite
+from ase.units import Rydberg
 from . import subdirs
+from . import espsite
 from .postprocess import PostProcess
 from .io import Mixins
 import numpy as np
 import atexit
-
-site = espsite.config()
-
-# ase controlled pw.x's register themselves here, so they can be
-# stopped automatically
-espresso_calculators = []
-
-# Define types of convergence errors that can be used to handle
-# convergence error automatically
 
 
 class ConvergenceError(Exception):
@@ -34,7 +26,7 @@ class KohnShamConvergenceError(ConvergenceError):
     pass
 
 
-class Espresso(FileIOCalculator, PostProcess, Mixins):
+class Espresso(PostProcess, Mixins, FileIOCalculator):
     """ASE interface for Quantum Espresso"""
 
     implemented_properties = [
@@ -44,10 +36,10 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
     def __init__(
             self,
             atoms=None,
-            pw=350.0,
-            dw=None,
-            fw=None,
-            nbands=-10,
+            ecutwfc=350.0,
+            ecutrho=None,
+            ecutfock=None,
+            nbnd=-10,
             kpts=(1, 1, 1),
             kptshift=(0, 0, 0),
             fft_grid=None,
@@ -94,15 +86,13 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
             field={'status': False},
             disk_io='default',
             wf_collect=False,
-            avoidio=False,  # ND
             removewf=True,  # ND
             removesave=False,  # ND
-            convergence={
-                'energy': 1e-6,
-                'mixing': 0.7,
-                'maxsteps': 100,
-                'diag': 'david'
-            },
+            mixing_beta=0.7,
+            mixing_mode=None,
+            conv_thr=1e-6 / Rydberg,
+            diagonalization='david',
+            diago_cg_maxiter=None,
             startingpot=None,
             startingwfc=None,
             ion_positions=None,
@@ -127,10 +117,6 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
             lberry=None,
             gdir=None,
             nppstr=None,
-            nbnd=None,
-            ecutwfc=None,
-            ecutrho=None,
-            ecutfock=None,
             force_symmorphic=None,
             use_all_frac=None,
             one_atom_occupations=None,
@@ -162,16 +148,13 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
             xdm_a2=None,
             electron_maxstep=None,
             scf_must_converge=None,
-            conv_thr=None,
             adaptive_thr=None,
             conv_thr_init=None,
             conv_thr_multi=None,
-            mixing_beta=None,
             mixing_ndim=None,
             mixing_fixed_ns=None,
             ortho_para=None,
             diago_thr_init=None,
-            diago_cg_maxiter=None,
             diago_david_ndim=None,
             diago_full_acc=None,
             efield=None,
@@ -202,21 +185,15 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
             restart=None,
             ignore_bad_restart_file=False,
             label=None,
-            command=None):
+            command=None,
+            site=espsite.config()
+    ):
         """
     Construct an ase-espresso calculator.
     Parameters (with defaults in parentheses):
      atoms (None)
         list of atoms object to be attached to calculator
         atoms.set_calculator can be used instead
-     pw (350.0)
-        plane-wave cut-off in eV
-     dw (10*pw)
-        charge-density cut-off in eV
-     fw (None)
-        plane-wave cutoff for evaluation of EXX in eV
-     nbands (-10)
-        number of bands, if negative: -n extra bands
      kpts ( (1,1,1) )
         k-point grid sub-divisions, k-point grid density,
         explicit list of k-points, or simply 'gamma' for gamma-point only.
@@ -370,10 +347,8 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         E.g. parflags='-npool 2' will distribute k-points (and spin if
         spin-polarized) over two nodes.
         """
-        self.pw = pw
-        self.dw = dw
-        self.fw = fw
-        self.nbands = nbands
+        self.ecutwfc = ecutwfc
+        self.ecutrho = ecutrho
         if isinstance(kpts, (float, int)):
             kpts = kptdensity2monkhorstpack(atoms, kpts)
         elif isinstance(kpts, str):
@@ -381,7 +356,6 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         else:
             assert len(kpts) == 3
         self.disk_io = disk_io
-        self.avoidio = avoidio
         self.removewf = removewf
         self.removesave = removesave
         self.wf_collect = wf_collect
@@ -428,7 +402,12 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         self.psppath = psppath
         self.dipole = dipole
         self.field = field
-        self.convergence = convergence
+        self.mixing_beta = mixing_beta
+        self.mixing_mode = mixing_mode
+        self.electron_maxstep = electron_maxstep
+        self.conv_thr = conv_thr
+        self.diagonalization = diagonalization
+        self.diago_cg_maxiter = diago_cg_maxiter
         self.startingpot = startingpot
         self.startingwfc = startingwfc
         self.ion_positions = ion_positions
@@ -470,8 +449,6 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         self.gdir = gdir
         self.nppstr = nppstr
         self.nbnd = nbnd
-        self.ecutwfc = ecutwfc
-        self.ecutrho = ecutrho
         self.ecutfock = ecutfock
         self.force_symmorphic = force_symmorphic
         self.use_all_frac = use_all_frac
@@ -502,9 +479,7 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         self.xdm = xdm
         self.xdm_a1 = xdm_a1
         self.xdm_a2 = xdm_a2
-        self.electron_maxstep = electron_maxstep
         self.scf_must_converge = scf_must_converge
-        self.conv_thr = conv_thr
         self.adaptive_thr = adaptive_thr
         self.conv_thr_init = conv_thr_init
         self.conv_thr_multi = conv_thr_multi
@@ -513,7 +488,6 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         self.mixing_fixed_ns = mixing_fixed_ns
         self.ortho_para = ortho_para
         self.diago_thr_init = diago_thr_init
-        self.diago_cg_maxiter = diago_cg_maxiter
         self.diago_david_ndim = diago_david_ndim
         self.diago_full_acc = diago_full_acc
         self.efield = efield
@@ -540,19 +514,12 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         self.wmass = wmass
         self.press_conv_thr = press_conv_thr
         self.results = results
-
-        # give original espresso style input names
-        # preference over ase / dacapo - style names
-        if ecutwfc is not None:
-            self.pw = ecutwfc
-        if ecutrho is not None:
-            self.dw = ecutwfc
-        if nbnd is not None:
-            self.nbands = nbnd
+        self.site = site
 
         # Variables that cannot be set by inputs
         self.nvalence = None
         self.nel = None
+        self.calculators = []
 
         # Auto create variables from input
         self.input_update()
@@ -562,7 +529,7 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
             self.proclist = False
         else:
             self.proclist = True
-            procs = site.procs + []
+            procs = self.site.procs + []
             procs.sort()
             nprocs = len(procs)
             self.myncpus = nprocs / numcalcs
@@ -583,12 +550,12 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
         self.create_outdir()  # Create the tmp output folder
 
         # sdir is the directory the script is run or submitted from
-        self.sdir = subdirs.getsubmitorcurrentdir(site)
+        self.sdir = subdirs.getsubmitorcurrentdir(self.site)
 
-        if self.dw is None:
-            self.dw = 10. * self.pw
+        if self.ecutrho is None:
+            self.ecutrho = 10 * self.ecutwfc
         else:
-            assert self.dw >= self.pw
+            assert self.ecutrho >= self.ecutwfc
 
         if self.psppath is None:
             try:
@@ -600,14 +567,6 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
             self.dipole = {'status': False}
         if self.field is None:
             self.field = {'status': False}
-
-        if self.convergence is None:
-            self.conv_thr = 1e-6 / Rydberg
-        else:
-            if 'energy' in self.convergence:
-                self.conv_thr = self.convergence['energy'] / Rydberg
-            else:
-                self.conv_thr = 1e-6 / Rydberg
 
         if self.beefensemble:
             if self.xc.upper().find('BEEF') < 0:
@@ -621,23 +580,12 @@ class Espresso(FileIOCalculator, PostProcess, Mixins):
 
     def create_outdir(self):
 
-        self.localtmp = subdirs.mklocaltmp(self.outdir, site)
+        self.localtmp = subdirs.mklocaltmp(self.outdir, self.site)
         self.log = self.localtmp + '/log'
-        self.scratch = subdirs.mkscratch(self.localtmp, site)
+        self.scratch = subdirs.mkscratch(self.localtmp, self.site)
 
-        if 'removewf' in self.removewf:
-            removewf = self.output['removewf']
-            else:
-                removewf = True
-            if 'removesave' in self.output:
-                removesave = self.output['removesave']
-            else:
-                removesave = False
-        else:
-            removewf = True
-            removesave = False
         atexit.register(subdirs.cleanup, self.localtmp, self.scratch,
-                        removewf, removesave, self, site)
+                        self.removewf, self.removesave, self, self.site)
 
     def calculate(self, atoms=None, properties=['energy'],
                   system_changes=None):

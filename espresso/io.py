@@ -18,15 +18,15 @@ class Mixins:
         if self.atoms is None:
             raise ValueError('no atoms defined')
 
-        f = open(self.pwinp, 'w')
+        f = open(filename, 'w')
 
         ionssec = self.calculation not in ('scf', 'nscf', 'bands')
 
         # &CONTROL ###
         print(
             "&CONTROL\n"
-            "   calculation='{}',\n"
-            "   prefix='calc',".format(self.calculation), file=f)
+            "  calculation='{}',\n"
+            "  prefix='calc',".format(self.calculation), file=f)
         if self.nstep is not None:
             print("  nstep={},".format(self.nstep), file=f)
 
@@ -42,30 +42,21 @@ class Mixins:
             print('  tprnfor=.true.,', file=f)
             if self.calcstress:
                 print('  tstress=.true.,', file=f)
-            if self.output is not None:
-                if 'avoidio' in self.output:
-                    if self.output['avoidio']:
-                        self.output['disk_io'] = 'none'
-                if 'disk_io' in self.output:
-                    if self.output['disk_io'] in ['high', 'low', 'none']:
-                        print(
-                            '  disk_io=\'' + self.output['disk_io'] + '\',',
-                            file=f)
 
-                if 'wf_collect' in self.output:
-                    if self.output['wf_collect']:
-                        print('  wf_collect=.true.,', file=f)
+            if self.disk_io is None:
+                self.disk_io = 'none'
+            if self.disk_io in ['high', 'low', 'none']:
+                print('  disk_io=\'' + self.disk_io + '\',',
+                      file=f)
+
+            if self.wf_collect:
+                print('  wf_collect=.true.,', file=f)
 
         # We basically ignore convergence of total energy differences
         # between ionic steps and only consider fmax as in ase
         print('  etot_conv_thr=1d0,', file=f)
         fc = utils.num2str(self.fmax / (Rydberg / Bohr))
         print('  forc_conv_thr={},'.format(fc), file=f)
-
-        # turn on fifo communication if espsite.py is set up that way
-        if hasattr(site, 'fifo'):
-            if site.fifo:
-                print('  ase_fifo=.true.,', file=f)
 
         # automatically generated parameters
         if self.iprint is not None:
@@ -135,33 +126,36 @@ class Mixins:
                 '  tot_magnetization=' +
                 utils.num2str(self.totmag * inimagscale) + ',',
                 file=f)
-        print('  ecutwfc=' + utils.num2str(self.pw / Rydberg) + ',', file=f)
-        print('  ecutrho=' + utils.num2str(self.dw / Rydberg) + ',', file=f)
-        if self.fw is not None:
+        print('  ecutwfc=' + utils.num2str(self.ecutwfc / Rydberg)
+              + ',', file=f)
+        print('  ecutrho=' + utils.num2str(self.ecutrho / Rydberg)
+              + ',', file=f)
+        if self.ecutfock is not None:
             print(
-                '  ecutfock=' + utils.num2str(self.fw / Rydberg) + ',', file=f)
+                '  ecutfock=' + utils.num2str(self.ecutfock / Rydberg)
+                + ',', file=f)
         # temporarily (and optionally) change number of bands for nscf calc.
         if overridenbands is not None:
-            if self.nbands is None:
+            if self.nbnd is None:
                 nbandssave = None
             else:
-                nbandssave = self.nbands
-            self.nbands = overridenbands
-        if self.nbands is not None:
+                nbandssave = self.nbnd
+            self.nbnd = overridenbands
+        if self.nbnd is not None:
             # set number of bands
-            if self.nbands > 0:
-                self.nbnd = int(self.nbands)
+            if self.nbnd > 0:
+                self.nbnd = int(self.nbnd)
             else:
-                # if self.nbands is negative create -self.nbands extra bands
+                # if self.nbnd is negative create -self.nbnd extra bands
                 if self.nvalence is None:
                     self.nvalence, self.nel = self.get_nvalence()
                 if self.noncollinear:
-                    self.nbnd = int(np.sum(self.nvalence) - self.nbands * 2.)
+                    self.nbnd = int(np.sum(self.nvalence) - self.nbnd * 2.)
                 else:
-                    self.nbnd = int(np.sum(self.nvalence) / 2. - self.nbands)
+                    self.nbnd = int(np.sum(self.nvalence) / 2. - self.nbnd)
             print('  nbnd=' + str(self.nbnd) + ',', file=f)
         if overridenbands is not None:
-            self.nbands = nbandssave
+            self.nbnd = nbandssave
         if usetetrahedra:
             print('  occupations=\'tetrahedra\',', file=f)
         else:
@@ -263,7 +257,7 @@ class Mixins:
             print('  emaxpos=' + utils.num2str(emaxpos) + ',', file=f)
             print('  eopreg=' + utils.num2str(eopreg) + ',', file=f)
             print('  eamp=' + utils.num2str(eamp) + ',', file=f)
- 
+
         if self.nqx1 is not None:
             print('  nqx1=%d,' % self.nqx1, file=f)
         if self.nqx2 is not None:
@@ -400,43 +394,27 @@ class Mixins:
 
         # &ELECTRONS ###
         print('/\n&ELECTRONS', file=f)
-        try:
-            diag = self.convergence['diag']
-            print('  diagonalization=\'' + diag + '\',', file=f)
-        except BaseException:
-            pass
+
+        diag = self.diagonalization
+        print('  diagonalization=\'' + diag + '\',', file=f)
 
         print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
 
-        for x in list(self.convergence.keys()):
-            if x == 'mixing':
-                print(
-                    '  mixing_beta=' + utils.num2str(self.convergence[x]) +
-                    ',',
-                    file=f)
-            elif x == 'maxsteps':
-                print(
-                    '  electron_maxstep=' + str(self.convergence[x]) + ',',
-                    file=f)
-            elif x == 'nmix':
-                print(
-                    '  mixing_ndim=' + str(self.convergence[x]) + ',', file=f)
-            elif x == 'mixing_mode':
-                print('  mixing_mode=\'' + self.convergence[x] + '\',', file=f)
-            elif x == 'diago_cg_maxiter':
-                print(
-                    '  diago_cg_maxiter=' + str(self.convergence[x]) + ',',
-                    file=f)
+        if self.mixing_beta:
+            print('  mixing_beta=' + utils.num2str(self.mixing_beta) + ',', file=f)
+        if self.electron_maxstep:
+            print('  electron_maxstep=' + str(self.electron_maxstep) + ',', file=f)
+        if self.mixing_ndim:
+            print('  mixing_ndim=' + str(self.mixing_ndim) + ',', file=f)
+        if self.mixing_mode is not None:
+            print('  mixing_mode=\'' + self.mixing_mode + '\',', file=f)
+        elif self.diago_cg_maxiter:
+            print('  diago_cg_maxiter=' + str(self.diago_cg_maxiter) + ',', file=f)
         if self.startingpot is not None:
             print('  startingpot=\'' + self.startingpot + '\',', file=f)
         if self.startingwfc is not None:
             print('  startingwfc=\'' + self.startingwfc + '\',', file=f)
 
-        # automatically generated parameters
-        if self.electron_maxstep is not None:
-            print(
-                '  electron_maxstep=' + str(self.electron_maxstep) + ',',
-                file=f)
         if self.scf_must_converge is not None:
             print(
                 '  scf_must_converge=' +
@@ -454,12 +432,6 @@ class Mixins:
             print(
                 '  conv_thr_multi=' + utils.num2str(self.conv_thr_multi) + ',',
                 file=f)
-        if self.mixing_beta is not None:
-            print(
-                '  mixing_beta=' + utils.num2str(self.mixing_beta) + ',',
-                file=f)
-        if self.mixing_ndim is not None:
-            print('  mixing_ndim=' + str(self.mixing_ndim) + ',', file=f)
         if self.mixing_fixed_ns is not None:
             print(
                 '  mixing_fixed_ns=' + str(self.mixing_fixed_ns) + ',', file=f)
@@ -468,10 +440,6 @@ class Mixins:
         if self.diago_thr_init is not None:
             print(
                 '  diago_thr_init=' + utils.num2str(self.diago_thr_init) + ',',
-                file=f)
-        if self.diago_cg_maxiter is not None:
-            print(
-                '  diago_cg_maxiter=' + str(self.diago_cg_maxiter) + ',',
                 file=f)
         if self.diago_david_ndim is not None:
             print(
@@ -748,15 +716,6 @@ class Mixins:
 
     def read(self, atoms):
 
-        # This should only be done once
-        stdout = check_output(['which', 'pw.x']).decode()
-        self.exedir = os.path.dirname(stdout)
-
-        with open(self.log, 'a') as f:
-            f.write('  python dir          : {}\n'.format(self.mypath))
-            f.write('  espresso dir        : {}\n'.format(self.exedir))
-            f.write('  pseudo dir          : {}\n'.format(self.psppath))
-
         if not self.started:
             fresh = True
             self.initialize(atoms)
@@ -971,14 +930,21 @@ class Mixins:
     def initialize(self, atoms):
         """Create the pw.inp input file and start the calculation."""
         if not self.started:
+            stdout = check_output(['which', 'pw.x']).decode()
+            self.exedir = os.path.dirname(stdout)
+
+            with open(self.log, 'a') as f:
+                f.write('  python dir          : {}\n'.format(self.mypath))
+                f.write('  espresso dir        : {}\n'.format(self.exedir))
+                f.write('  pseudo dir          : {}\n'.format(self.psppath))
+
             self.atoms = atoms.copy()
             self.atoms2species()
             self.natoms = len(self.atoms)
             self.check_spinpol()
             self.write_input()
 
-        if self.cancalc:
-            self.start()
+        self.start()
 
     def check_spinpol(self):
         mm = self.atoms.get_initial_magnetic_moments()
@@ -1005,23 +971,23 @@ class Mixins:
     def start(self):
         if not self.started:
             if self.single_calculator:
-                while len(espresso_calculators) > 0:
-                    espresso_calculators.pop().stop()
-                espresso_calculators.append(self)
-            if site.batch:
+                while len(self.calculators) > 0:
+                    self.calculators.pop().stop()
+                self.calculators.append(self)
+            if self.site.batch:
                 cdir = os.getcwd()
                 os.chdir(self.localtmp)
-                call(site.perHostMpiExec + ' cp ' + self.localtmp +
+                call(self.site.perHostMpiExec + ' cp ' + self.localtmp +
                      '/pw.inp ' + self.scratch, shell=True)
 
                 if not self.proclist:
-                    self.cinp, self.cout = site.do_perProcMpiExec(
+                    self.cinp, self.cout = self.site.do_perProcMpiExec(
                         self.scratch, self.exedir + 'pw.x ' +
                         self.parflags + ' -in pw.inp')
                 else:
                     (self.cinp,
                      self.cout,
-                     self.cerr) = site.do_perSpecProcMpiExec(
+                     self.cerr) = self.site.do_perSpecProcMpiExec(
                         self.mycpus, self.myncpus, self.scratch,
                         self.exedir + 'pw.x ' + self.parflags +
                         ' -in pw.inp|' + self.mypath + '/espfilter ' + str(
