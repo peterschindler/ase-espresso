@@ -9,7 +9,6 @@
 import os
 from ase.calculators.calculator import kptdensity2monkhorstpack
 from ase.calculators.calculator import FileIOCalculator
-from ase.units import Rydberg
 from . import subdirs
 from . import espsite
 from .postprocess import PostProcess
@@ -47,13 +46,12 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
             ion_dynamics='bfgs',
             nstep=None,
             constr_tol=None,
-            fmax=0.05,
+            forc_conv_thr=0.05,
             cell_dynamics=None,
             press=None,
             dpress=None,
             cell_factor=None,
             cell_dofree=None,
-            dontcalcforces=False,
             nosym=False,
             noinv=False,
             nosym_evc=False,
@@ -90,7 +88,7 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
             removesave=False,  # ND
             mixing_beta=0.7,
             mixing_mode=None,
-            conv_thr=1e-6 / Rydberg,
+            conv_thr=1e-4,
             diagonalization='david',
             diago_cg_maxiter=None,
             startingpot=None,
@@ -108,7 +106,6 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
             lkpoint_dir=None,
             max_seconds=None,
             etot_conv_thr=None,
-            forc_conv_thr=None,
             tefield=None,
             dipfield=None,
             lelfield=None,
@@ -361,18 +358,15 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
         self.wf_collect = wf_collect
         self.kpts = kpts
         self.kptshift = kptshift
-        self.fft_grid = fft_grid  # RK
         self.calculation = calculation
         self.ion_dynamics = ion_dynamics
         self.nstep = nstep
         self.constr_tol = constr_tol
-        self.fmax = fmax
         self.cell_dynamics = cell_dynamics
         self.press = press
         self.dpress = dpress
         self.cell_factor = cell_factor
         self.cell_dofree = cell_dofree
-        self.dontcalcforces = dontcalcforces
         self.nosym = nosym
         self.noinv = noinv
         self.nosym_evc = nosym_evc
@@ -581,7 +575,7 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
     def create_outdir(self):
 
         self.localtmp = subdirs.mklocaltmp(self.outdir, self.site)
-        self.log = self.localtmp + '/log'
+        self.log = self.localtmp + '/log.pwo'
         self.scratch = subdirs.mkscratch(self.localtmp, self.site)
 
         atexit.register(subdirs.cleanup, self.localtmp, self.scratch,
