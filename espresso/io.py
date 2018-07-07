@@ -10,13 +10,12 @@ class Mixins:
 
     def write_input(self,
                     filename='input.pwi',
-                    overridekpts=None,
-                    overridekptshift=None,
                     overridenbands=None,
                     usetetrahedra=False):
         if self.atoms is None:
             raise ValueError('no atoms defined')
 
+        # Open the write filen
         f = open(filename, 'w')
 
         ionssec = self.calculation not in ('scf', 'nscf', 'bands')
@@ -27,11 +26,6 @@ class Mixins:
             "  calculation='{}',\n"
             "  prefix='calc',".format(self.calculation), file=f)
 
-        if self.nstep is not None:
-            print("  nstep={},".format(self.nstep), file=f)
-
-        print("  pseudo_dir='{}',".format(self.psppath), file=f)
-        print("  outdir='.',", file=f)
         efield = (self.field['status'])
         dipfield = (self.dipole['status'])
 
@@ -40,11 +34,9 @@ class Mixins:
             if dipfield:
                 print('  dipfield=.true.,', file=f)
 
-        if not self.dontcalcforces:
-            print('  tprnfor=.true.,', file=f)
-
-            if self.calcstress:
-                print('  tstress=.true.,', file=f)
+        print('  tprnfor=.true.,', file=f)
+        if self.calcstress:
+            print('  tstress=.true.,', file=f)
 
         if self.disk_io is None:
             self.disk_io = 'none'
@@ -60,40 +52,6 @@ class Mixins:
         print('  etot_conv_thr=1d0,', file=f)
         self.forc_conv_thr /= Rydberg / Bohr
         print('  forc_conv_thr={},'.format(self.forc_conv_thr), file=f)
-
-        # automatically generated parameters
-        if self.iprint is not None:
-            print('  iprint=' + str(self.iprint) + ',', file=f)
-        if self.tstress is not None:
-            print('  tstress=' + utils.bool2str(self.tstress) + ',', file=f)
-        if self.tprnfor is not None:
-            print('  tprnfor=' + utils.bool2str(self.tprnfor) + ',', file=f)
-        if self.dt is not None:
-            print('  dt=' + utils.num2str(self.dt) + ',', file=f)
-        if self.lkpoint_dir is not None:
-            print('  lkpoint_dir=' + utils.bool2str(self.lkpoint_dir) + ',', file=f)
-        if self.max_seconds is not None:
-            print('  max_seconds=' + utils.num2str(self.max_seconds) + ',', file=f)
-        if self.etot_conv_thr is not None:
-            print('  etot_conv_thr=' + utils.num2str(self.etot_conv_thr) + ',', file=f)
-        if self.tefield is not None:
-            print('  tefield=' + utils.bool2str(self.tefield) + ',', file=f)
-        if self.dipfield is not None:
-            print('  dipfield=' + utils.bool2str(self.dipfield) + ',', file=f)
-        if self.lelfield is not None:
-            print('  lelfield=' + utils.bool2str(self.lelfield) + ',', file=f)
-        if self.nberrycyc is not None:
-            print('  nberrycyc=' + str(self.nberrycyc) + ',', file=f)
-        if self.lorbm is not None:
-            print('  lorbm=' + utils.bool2str(self.lorbm) + ',', file=f)
-        if self.lberry is not None:
-            print('  lberry=' + utils.bool2str(self.lberry) + ',', file=f)
-        if self.gdir is not None:
-            print('  gdir=' + str(self.gdir) + ',', file=f)
-        if self.nppstr is not None:
-            print('  nppstr=' + str(self.nppstr) + ',', file=f)
-        if self.lfcpopt is not None:
-            print('  lfcpopt=' + utils.bool2str(self.lfcpopt) + ',', file=f)
 
         ### &SYSTEM ###
         print('/\n&SYSTEM\n  ibrav=0,', file=f)
@@ -116,13 +74,7 @@ class Mixins:
         print('  ecutrho=' + utils.num2str(self.ecutrho / Rydberg) + ',', file=f)
         if self.ecutfock is not None:
             print('  ecutfock=' + utils.num2str(self.ecutfock / Rydberg) + ',', file=f)
-        # temporarily (and optionally) change number of bands for nscf calc.
-        if overridenbands is not None:
-            if self.nbnd is None:
-                nbandssave = None
-            else:
-                nbandssave = self.nbnd
-            self.nbnd = overridenbands
+
         if self.nbnd is not None:
             # set number of bands
             if self.nbnd > 0:
@@ -136,8 +88,7 @@ class Mixins:
                 else:
                     self.nbnd = int(np.sum(self.nvalence) / 2. - self.nbnd)
             print('  nbnd=' + str(self.nbnd) + ',', file=f)
-        if overridenbands is not None:
-            self.nbnd = nbandssave
+
         if usetetrahedra:
             print('  occupations=\'tetrahedra\',', file=f)
         else:
@@ -151,6 +102,7 @@ class Mixins:
                 if self.spinpol:
                     assert self.fix_magmom
                 print('  occupations=\'fixed\',', file=f)
+
         if self.spinpol:
             print('  nspin=2,', file=f)
             spcount = 1
@@ -162,11 +114,9 @@ class Mixins:
                 el = spec.s
                 mag = spec.magmom / self.nel[el]
                 assert np.abs(mag) <= 1.  # magnetization oversaturated!!!
-                print(
-                    '  starting_magnetization(%d)=%s,' %
-                    (spcount, utils.num2str(float(mag))),
-                    file=f)
+                print('  starting_magnetization(%d)=%s,' % (spcount, utils.num2str(float(mag))), file=f)
                 spcount += 1
+
         elif self.noncollinear:
             print('  noncolin=.true.,', file=f)
             if self.spinorbit:
@@ -174,7 +124,7 @@ class Mixins:
             spcount = 1
             if self.nel is None:
                 self.nvalence, self.nel = self.get_nvalence()
-            # FOLLOW SAME ORDERING ROUTINE AS FOR PSP
+
             for species in self.species:
                 spec = self.specdict[species]
                 el = spec.s
@@ -185,15 +135,18 @@ class Mixins:
                     (spcount, utils.num2str(float(mag))),
                     file=f)
                 spcount += 1
+
         if self.isolated is not None:
             print('  assume_isolated=\'' + self.isolated + '\',', file=f)
         print('  input_dft=\'' + self.xc + '\',', file=f)
+
         if self.beefensemble:
             print('  ensemble_energies=.true.,', file=f)
             if self.printensemble:
                 print('  print_ensemble_energies=.true.,', file=f)
             else:
                 print('  print_ensemble_energies=.false.,', file=f)
+
         if dipfield:
             try:
                 edir = self.dipole['edir']
@@ -204,8 +157,10 @@ class Mixins:
                 edir = self.field['edir']
             except BaseException:
                 pass
+
         if dipfield or efield:
             print('  edir=' + str(edir) + ',', file=f)
+
         if dipfield:
             if 'emaxpos' in self.dipole:
                 emaxpos = self.dipole['emaxpos']
@@ -239,108 +194,6 @@ class Mixins:
             print('  eopreg=' + utils.num2str(eopreg) + ',', file=f)
             print('  eamp=' + utils.num2str(eamp) + ',', file=f)
 
-        if self.nqx1 is not None:
-            print('  nqx1=%d,' % self.nqx1, file=f)
-        if self.nqx2 is not None:
-            print('  nqx2=%d,' % self.nqx2, file=f)
-        if self.nqx3 is not None:
-            print('  nqx3=%d,' % self.nqx3, file=f)
-
-        if self.exx_fraction is not None:
-            print(
-                '  exx_fraction=' + utils.num2str(self.exx_fraction) + ',',
-                file=f)
-        if self.screening_parameter is not None:
-            print(
-                '  screening_parameter=' +
-                utils.num2str(self.screening_parameter) + ',',
-                file=f)
-        if self.exxdiv_treatment is not None:
-            print(
-                '  exxdiv_treatment=\'' + self.exxdiv_treatment + '\',',
-                file=f)
-        if self.ecutvcut is not None:
-            print('  ecutvcut=' + utils.num2str(self.ecutvcut) + ',', file=f)
-
-        if self.nosym:
-            print('  nosym=.true.,', file=f)
-        if self.noinv:
-            print('  noinv=.true.,', file=f)
-        if self.nosym_evc:
-            print('  nosym_evc=.true.,', file=f)
-        if self.no_t_rev:
-            print('  no_t_rev=.true.,', file=f)
-
-        # automatically generated parameters
-        if self.force_symmorphic is not None:
-            print('  force_symmorphic=' + utils.bool2str(self.force_symmorphic) + ',', file=f)
-        if self.use_all_frac is not None:
-            print('  use_all_frac=' + utils.bool2str(self.use_all_frac) + ',', file=f)
-        if self.one_atom_occupations is not None:
-            print('  one_atom_occupations=' + utils.bool2str(self.one_atom_occupations) + ',', file=f)
-        if self.starting_spin_angle is not None:
-            print('  starting_spin_angle=' + utils.bool2str(self.starting_spin_angle) + ',', file=f)
-        if self.degauss is not None:
-            print('  degauss=' + utils.num2str(self.degauss) + ',', file=f)
-        if self.nspin is not None:
-            print('  nspin=' + str(self.nspin) + ',', file=f)
-        if self.ecfixed is not None:
-            print('  ecfixed=' + utils.num2str(self.ecfixed) + ',', file=f)
-        if self.qcutz is not None:
-            print('  qcutz=' + utils.num2str(self.qcutz) + ',', file=f)
-        if self.q2sigma is not None:
-            print('  q2sigma=' + utils.num2str(self.q2sigma) + ',', file=f)
-        if self.x_gamma_extrapolation is not None:
-            print('  x_gamma_extrapolation=' + utils.bool2str(self.x_gamma_extrapolation) + ',', file=f)
-        if self.lda_plus_u is not None:
-            print('  lda_plus_u=' + utils.bool2str(self.lda_plus_u) + ',', file=f)
-        if self.lda_plus_u_kind is not None:
-            print('  lda_plus_u_kind=' + str(self.lda_plus_u_kind) + ',', file=f)
-        if self.edir is not None:
-            print('  edir=' + str(self.edir) + ',', file=f)
-        if self.emaxpos is not None:
-            print('  emaxpos=' + utils.num2str(self.emaxpos) + ',', file=f)
-        if self.eopreg is not None:
-            print('  eopreg=' + utils.num2str(self.eopreg) + ',', file=f)
-        if self.eamp is not None:
-            print('  eamp=' + utils.num2str(self.eamp) + ',', file=f)
-        if self.clambda is not None:
-            print('  lambda=' + utils.num2str(self.clambda) + ',', file=f)
-        if self.report is not None:
-            print('  report=' + str(self.report) + ',', file=f)
-        if self.lspinorb is not None:
-            print('  lspinorb=' + utils.bool2str(self.lspinorb) + ',', file=f)
-        if self.esm_bc is not None:
-            print('  esm_bc=\'' + self.esm_bc + '\',', file=f)
-        if self.esm_w is not None:
-            print('  esm_w=' + utils.num2str(self.esm_w) + ',', file=f)
-        if self.esm_efield is not None:
-            print('  esm_efield=' + utils.num2str(self.esm_efield) + ',', file=f)
-        if self.esm_nfit is not None:
-            print('  esm_nfit=' + str(self.esm_nfit) + ',', file=f)
-        if self.london is not None:
-            print('  london=' + utils.bool2str(self.london) + ',', file=f)
-        if self.london_s6 is not None:
-            print('  london_s6=' + utils.num2str(self.london_s6) + ',', file=f)
-        if self.london_rcut is not None:
-            print('  london_rcut=' + utils.num2str(self.london_rcut) + ',', file=f)
-        if self.xdm is not None:
-            print('  xdm=' + utils.bool2str(self.xdm) + ',', file=f)
-        if self.xdm_a1 is not None:
-            print('  xdm_a1=' + utils.num2str(self.xdm_a1) + ',', file=f)
-        if self.xdm_a2 is not None:
-            print('  xdm_a2=' + utils.num2str(self.xdm_a2) + ',', file=f)
-        if self.vdw_corr is not None:
-            print('  vdw_corr=\'' + self.vdw_corr + '\',', file=f)
-        if self.ts_vdw_econv_thr is not None:
-            print('  ts_vdw_econv_thr=' + utils.num2str(self.ts_vdw_econv_thr) + ',', file=f)
-        if self.ts_vdw_isolated is not None:
-            print('  ts_vdw_isolated=' + utils.bool2str(self.tsw_vdw_isolated) + ',', file=f)
-        if self.fcp_mu is not None:
-            print('  fcp_mu=' + utils.num2str(self.fcp_mu) + ',', file=f)
-        if self.esm_a is not None:
-            print('  esm_a=' + utils.num2str(self.esm_a) + ',', file=f)
-
         # &ELECTRONS ###
         print('/\n&ELECTRONS', file=f)
 
@@ -348,43 +201,6 @@ class Mixins:
 
         self.conv_thr /= Rydberg
         print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
-
-        if self.mixing_beta:
-            print('  mixing_beta=' + utils.num2str(self.mixing_beta) + ',', file=f)
-        if self.mixing_ndim:
-            print('  mixing_ndim=' + str(self.mixing_ndim) + ',', file=f)
-        if self.electron_maxstep:
-            print('  electron_maxstep=' + str(self.electron_maxstep) + ',', file=f)
-        if self.mixing_mode is not None:
-            print('  mixing_mode=\'' + self.mixing_mode + '\',', file=f)
-        elif self.diago_cg_maxiter:
-            print('  diago_cg_maxiter=' + str(self.diago_cg_maxiter) + ',', file=f)
-        if self.startingpot is not None:
-            print('  startingpot=\'' + self.startingpot + '\',', file=f)
-        if self.startingwfc is not None:
-            print('  startingwfc=\'' + self.startingwfc + '\',', file=f)
-        if self.scf_must_converge is not None:
-            print('  scf_must_converge=' + utils.bool2str(self.scf_must_converge) + ',', file=f)
-        if self.adaptive_thr is not None:
-            print('  adaptive_thr=' + utils.bool2str(self.adaptive_thr) + ',', file=f)
-        if self.conv_thr_init is not None:
-            print('  conv_thr_init=' + utils.num2str(self.conv_thr_init) + ',', file=f)
-        if self.conv_thr_multi is not None:
-            print('  conv_thr_multi=' + utils.num2str(self.conv_thr_multi) + ',', file=f)
-        if self.mixing_fixed_ns is not None:
-            print('  mixing_fixed_ns=' + str(self.mixing_fixed_ns) + ',', file=f)
-        if self.ortho_para is not None:
-            print('  ortho_para=' + str(self.ortho_para) + ',', file=f)
-        if self.diago_thr_init is not None:
-            print('  diago_thr_init=' + utils.num2str(self.diago_thr_init) + ',', file=f)
-        if self.diago_david_ndim is not None:
-            print('  diago_david_ndim=' + str(self.diago_david_ndim) + ',', file=f)
-        if self.diago_full_acc is not None:
-            print('  diago_full_acc=' + utils.bool2str(self.diago_full_acc) +  ',', file=f)
-        if self.efield is not None:
-            print('  efield=' + utils.num2str(self.efield) + ',', file=f)
-        if self.tqr is not None:
-            print('  tqr=' + utils.bool2str(self.tqr) + ',', file=f)
 
         # &IONS ###
         if not ionssec:
@@ -396,6 +212,7 @@ class Mixins:
             self.optdamp = False
         else:
             self.optdamp = (self.ion_dynamics.upper() == 'DAMP')
+
         if self.ion_dynamics is not None and ionssec:
             if len(otherconstr) != 0:
                 print('/\n&IONS\n  ion_dynamics=\'damp\',', file=f)
@@ -406,34 +223,6 @@ class Mixins:
                 print('  ion_positions=\'' + self.ion_positions + '\',', file=f)
         elif self.ion_positions is not None:
             print('/\n&IONS\n  ion_positions=\'' + self.ion_positions + '\',', file=f)
-
-        # automatically generated parameters
-        if self.remove_rigid_rot is not None:
-            print('  remove_rigid_rot=' + utils.bool2str(self.remove_rigid_rot) + ',', file=f)
-        if self.tempw is not None:
-            print('  tempw=' + utils.num2str(self.tempw) + ',', file=f)
-        if self.tolp is not None:
-            print('  tolp=' + utils.num2str(self.tolp) + ',', file=f)
-        if self.delta_t is not None:
-            print('  delta_t=' + utils.num2str(self.delta_t) + ',', file=f)
-        if self.nraise is not None:
-            print('  nraise=' + str(self.nraise) + ',', file=f)
-        if self.refold_pos is not None:
-            print('  refold_pos=' + utils.bool2str(self.refold_pos) + ',', file=f)
-        if self.upscale is not None:
-            print('  upscale=' + utils.num2str(self.upscale) + ',', file=f)
-        if self.bfgs_ndim is not None:
-            print('  bfgs_ndim=' + str(self.bfgs_ndim) + ',', file=f)
-        if self.trust_radius_max is not None:
-            print('  trust_radius_max=' + utils.num2str(self.trust_radius_max) + ',', file=f)
-        if self.trust_radius_min is not None:
-            print('  trust_radius_min=' + utils.num2str(self.trust_radius_min) + ',', file=f)
-        if self.trust_radius_ini is not None:
-            print('  trust_radius_ini=' + utils.num2str(self.trust_radius_ini) + ',', file=f)
-        if self.w_1 is not None:
-            print('  w_1=' + utils.num2str(self.w_1) + ',', file=f)
-        if self.w_2 is not None:
-            print('  w_2=' + utils.num2str(self.w_2) + ',', file=f)
 
         # &CELL ###
         if self.cell_dynamics is not None:
@@ -446,43 +235,6 @@ class Mixins:
                 print('  cell_factor=' + utils.num2str(self.cell_factor) + ',', file=f)
             if self.cell_dofree is not None:
                 print('  cell_dofree=\'' + self.cell_dofree + '\',', file=f)
-
-        # automatically generated parameters
-        if self.wmass is not None:
-            print('  wmass=' + utils.num2str(self.wmass) + ',', file=f)
-        if self.press_conv_thr is not None:
-            print('  press_conv_thr=' + utils.num2str(self.press_conv_thr) + ',', file=f)
-
-        # CELL_PARAMETERS
-        print('/\nCELL_PARAMETERS {angstrom}', file=f)
-        for i in range(3):
-            print('%21.15fd0 %21.15fd0 %21.15fd0' % tuple(self.atoms.cell[i]), file=f)
-
-        print('ATOMIC_SPECIES', file=f)
-        for species in self.species:  # PSP ORDERING FOLLOWS SPECIESINDEX
-            spec = self.specdict[species]
-            print(species, utils.num2str(spec.mass), spec.s + '.UPF', file=f)
-
-        print('ATOMIC_POSITIONS {crystal}', file=f)
-        if len(simpleconstr) == 0:
-            for species, pos in self.specprops:
-                print('%-4s %21.15fd0 %21.15fd0 %21.15fd0' % (species, pos[0], pos[1], pos[2]), file=f)
-        else:
-            for i, (species, pos) in enumerate(self.specprops):
-                print(
-                    '%-4s %21.15fd0 %21.15fd0 %21.15fd0   %d  %d  %d' %
-                    (species, pos[0], pos[1], pos[2], simpleconstr[i][0],
-                     simpleconstr[i][1], simpleconstr[i][2]),
-                    file=f)
-
-        if len(otherconstr) != 0:
-            print('CONSTRAINTS', file=f)
-            if self.constr_tol is None:
-                print(len(otherconstr), file=f)
-            else:
-                print(len(otherconstr), utils.num2str(self.constr_tol), file=f)
-            for x in otherconstr:
-                print(x, file=f)
 
         f.close()
 
@@ -979,185 +731,3 @@ class Mixins:
 
         return efermi
 
-
-DEFAULTS = {
-    'CONTROL': {
-        'calculation': 'scf',
-        'title': '',
-        'verbosity': 'low',
-        'restart_mode': 'from_scratch',
-        'wf_collect': True,
-        'nstep': 1,
-        'iprint': None,
-        'tstress': False,
-        'tprnfor': True,
-        'dt': None,
-        'outdir': '.',
-        'wfcdir': None,
-        'prefix': 'calc',
-        'lkpoint_dir': True,
-        'max_seconds': None,
-        'etot_conv_thr': 1e-4,
-        'forc_conv_thr': 1e-3,
-        'disk_io': 'low',
-        'pseudo_dir': None,
-        'tefield': False,
-        'dipfield': False,
-        'lelfield': False,
-        'nberrycyc': 1,
-        'lorbm': False,
-        'lberry': False,
-        'gdir': None,
-        'nppstr': None,
-        'lfcpopt': False,
-        'gate': False
-    },
-    'SYSTEM': {
-        'ibrav': 0,
-        'celldm': None,
-        'A': None,
-        'B': None,
-        'C': None,
-        'cosAB': None,
-        'cosAC': None,
-        'cosBC': None,
-        'nat': None,
-        'ntyp': None,
-        'nbnd': ,
-        'tot_charge': 0.0,
-        'starting_charge': ,
-        'tot_magnetization': -1,
-        'starting_magnetization': ,
-        'ecutwfc': None,
-        'ecutrho': ,
-        'ecutfock': ,
-        'nr1': ,
-        'nr2':,
-        'nr3':,
-        'nr1s':,
-        'nr2s':,
-        'nr3s':,
-        'nosym':,
-        'nosym_evc':,
-        'noinv':,
-        'no_t_rev':,
-        'force_symmorphic':,
-        'use_all_frac':,
-        'occupations':,
-        'one_atom_occupations':,
-        'starting_spin_angle':,
-        'degauss':,
-        'smearing':,
-        'nspin':,
-        'noncolin':,
-        'ecfixed':,
-        'qcutz':,
-        'q2sigma':,
-        'input_dft':,
-        'exx_fraction':,
-        'screening_parameter':,
-        'exxdiv_treatment':,
-        'x_gamma_extrapolation':,
-        'ecutvcut':,
-        'nqx1':,
-        'nqx2':,
-        'nqx3':,
-        'lda_plus_u':,
-        'lda_plus_u_kind':,
-        'Hubbard_U':,
-        'Hubbard_J0':,
-        'Hubbard_alpha':,
-        'Hubbard_beta':,
-        'Hubbard_J':,
-        'starting_ns_eigenvalue':,
-        'U_projection_type':,
-        'edir':,
-        'emaxpos':,
-        'eopreg':,
-        'eamp':,
-        'angle1':,
-        'angle2':,
-        'constrained_magnetization':,
-        'fixed_magnetization':,
-        'lambda':,
-        'report':,
-        'lspinorb':,
-        'assume_isolated':,
-        'esm_bc':,
-        'esm_w':,
-        'esm_efield':,
-        'esm_nfit':,
-        'fcp_mu':,
-        'vdw_corr':,
-        'london':,
-        'london_s6':,
-        'london_c6':,
-        'london_rvdw':,
-        'london_rcut':,
-        'ts_vdw_econv_thr':,
-        'ts_vdw_isolated':,
-        'xdm':,
-        'xdm_a1':,
-        'xdm_a2':,
-        'space_group':,
-        'uniqueb':,
-        'origin_choice':,
-        'rhombohedral':,
-        'zmon':,
-        'realxz':,
-        'block':,
-        'block_1':,
-        'block_2':,
-        'block_height':
-    },
-    'ELECTRONS': {
-        'electron_maxstep',
-        'scf_must_converge',
-        'conv_thr',
-        'adaptive_thr',
-        'conv_thr_init',
-        'conv_thr_multi',
-        'mixing_mode',
-        'mixing_beta',
-        'mixing_ndim',
-        'mixing_fixed_ns',
-        'diagonalization',
-        'ortho_para',
-        'diago_thr_init',
-        'diago_cg_maxiter',
-        'diago_david_ndim',
-        'diago_full_acc',
-        'efield',
-        'efield_cart',
-        'efield_phase',
-        'startingpot',
-        'startingwfc',
-        'tqr'
-    },
-    'IONS': {
-        'ion_dynamics',
-        'ion_positions',
-        'pot_extrapolation',
-        'wfc_extrapolation',
-        'remove_rigid_rot',
-        'ion_temperature',
-        'tempw',
-        'tolp',
-        'delta_t',
-        'nraise',
-        'refold_pos',
-        'upscale',
-        'bfgs_ndim',
-        'trust_radius_max',
-        'trust_radius_min',
-        'trust_radius_ini',
-        'w_1',
-        'w_2'},
-    'CELL': {
-        'cell_dynamics',
-        'press',
-        'wmass',
-        'cell_factor',
-        'press_conv_thr',
-        'cell_dofree'
-    }}
