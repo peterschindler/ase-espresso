@@ -8,15 +8,9 @@ import os
 
 class Mixins:
 
-    def write_input(self,
-                    filename='input.pwi',
-                    overridenbands=None,
-                    usetetrahedra=False):
-        if self.atoms is None:
-            raise ValueError('no atoms defined')
+    def write_input(self):
 
-        # Open the write filen
-        f = open(filename, 'w')
+        f = open('input.pwi', 'w')
 
         ionssec = self.calculation not in ('scf', 'nscf', 'bands')
 
@@ -28,24 +22,6 @@ class Mixins:
 
         efield = (self.field['status'])
         dipfield = (self.dipole['status'])
-
-        if efield or dipfield:
-            print('  tefield=.true.,', file=f)
-            if dipfield:
-                print('  dipfield=.true.,', file=f)
-
-        print('  tprnfor=.true.,', file=f)
-        if self.calcstress:
-            print('  tstress=.true.,', file=f)
-
-        if self.disk_io is None:
-            self.disk_io = 'none'
-
-        if self.disk_io in ['high', 'low', 'none']:
-            print('  disk_io=\'' + self.disk_io + '\',', file=f)
-
-        if self.wf_collect:
-            print('  wf_collect=.true.,', file=f)
 
         # We basically ignore convergence of total energy differences
         # between ionic steps and only consider fmax as in ase
@@ -59,9 +35,6 @@ class Mixins:
         self.atoms2species()
         print('  ntyp=' + str(self.nspecies) + ',', file=f)
 
-        if self.tot_charge is not None:
-            print('  tot_charge=' + utils.num2str(self.tot_charge) + ',', file=f)
-
         if self.fix_magmom:
             assert self.spinpol
             self.totmag = self.summed_magmoms
@@ -70,8 +43,6 @@ class Mixins:
             self.totmag = self.tot_magnetization
             print('  tot_magnetization=' + utils.num2str(self.totmag) + ',', file=f)
 
-        print('  ecutwfc=' + utils.num2str(self.ecutwfc / Rydberg) + ',', file=f)
-        print('  ecutrho=' + utils.num2str(self.ecutrho / Rydberg) + ',', file=f)
         if self.ecutfock is not None:
             print('  ecutfock=' + utils.num2str(self.ecutfock / Rydberg) + ',', file=f)
 
@@ -730,4 +701,3 @@ class Mixins:
             efermi = float(efermi.split()[-2])
 
         return efermi
-

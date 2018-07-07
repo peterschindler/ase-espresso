@@ -1,14 +1,5 @@
-#****************************************************************************
-# Copyright (C) 2013-2015 SUNCAT
-# This file is distributed under the terms of the
-# GNU General Public License. See the file `COPYING'
-# in the root directory of the present distribution,
-# or http://www.gnu.org/copyleft/gpl.txt .
-#****************************************************************************
-
-import os
-from ase.calculators.calculator import kptdensity2monkhorstpack
 from ase.calculators.calculator import FileIOCalculator
+from ase.units import Rydberg
 from . import validate
 from . import subdirs
 from . import espsite
@@ -17,6 +8,8 @@ from .io import Mixins
 import numpy as np
 import atexit
 import warnings
+defaults = validate.variables
+
 
 class ConvergenceError(Exception):
     pass
@@ -36,20 +29,15 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
     def __init__(
             self,
             atoms,
+            ecutwfc,
             site=espsite.config(),
             **kwargs):
 
-        self.outdir = '.'
         self.site = site
         self.removewf = True
         self.removesave = True
-
-        self.ecutrho = None
-        self.ecutwfc = 400
-        self.dipole = None
-        self.field = None
-        self.beefensemble = None
-        procrange = None
+        self.params = kwargs.copy()
+        self.params['ecutwfc'] = ecutwfc / Rydberg
 
         # Auto create variables from input
         self.input_update()
@@ -58,50 +46,65 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
             self.atoms = atoms
             atoms.set_calculator(self)
 
-        self.parameters = kwargs.copy()
-        for key, val in self.parameters.items():
+        # Certain keys are used to define IO features or atoms object
+        # information. For calculation consistency, user input is ignored.
+        ignored_keys = ['prefix', 'ibrav', 'nat', 'ntyp']
+
+        # Run validation checks
+        bad_keys = []
+        for key, val in self.params.items():
             if key in validate.__dict__:
                 f = validate.__dict__[key]
                 f(self, val)
             else:
-                warnings.warn('No validation for {}'.format(key))
+                if key not in defaults:
+                    warnings.warn('Not a valid key {}'.format(key))
+                    bad_keys += [key]
+                else:
+                    warnings.warn('No validation for {}'.format(key))
+
+            if key in ignored_keys:
+                bad_keys += [key]
+
+        for bkey in bad_keys:
+            del self.params[bkey]
+
+        print(self.params)
 
     def input_update(self):
         """Run initialization functions, such that this can be called
         if variables in espresso are changes using set or directly.
         """
-        self.create_outdir()  # Create the tmp output folder
-
-        # sdir is the directory the script is run or submitted from
-        self.sdir = subdirs.getsubmitorcurrentdir(self.site)
-
-        if self.ecutrho is None:
-            self.ecutrho = 10 * self.ecutwfc
-        else:
-            assert self.ecutrho >= self.ecutwfc
-
-        if self.dipole is None:
-            self.dipole = {'status': False}
-        if self.field is None:
-            self.field = {'status': False}
-
-        if self.beefensemble:
-            if self.xc.upper().find('BEEF') < 0:
-                raise KeyError(
-                    'ensemble-energies only work with xc=BEEF '
-                    'or variants of it!')
-
-        self.started = False
-        self.got_energy = False
-
-    def create_outdir(self):
-
-        self.localtmp = subdirs.mklocaltmp(self.outdir, self.site)
+        outdir = self.get_param('outdir')
+        self.localtmp = subdirs.mklocaltmp(outdir, self.site)
         self.log = self.localtmp + '/log.pwo'
         self.scratch = subdirs.mkscratch(self.localtmp, self.site)
 
         atexit.register(subdirs.cleanup, self.localtmp, self.scratch,
                         self.removewf, self.removesave, self, self.site)
+
+        # sdir is the directory the script is run or submitted from
+        self.sdir = subdirs.getsubmitorcurrentdir(self.site)
+
+        if self.get_param('ecutrho') is None:
+            self.params['ecutrho'] = self.get_param('ecutwfc') * 10
+
+        if self.get_param('dipfield') is not None:
+            self.params['tefield'] = True
+
+        if self.get_param('tstress') is not None:
+            self.params['tprnfor'] = True
+
+        
+
+        # if self.beefensemble:
+        #     if self.xc.upper().find('BEEF') < 0:
+        #         raise KeyError(
+        #             'ensemble-energies only work with xc=BEEF '
+        #             'or variants of it!')
+
+        self.started = False
+        self.got_energy = False
 
     def calculate(self, atoms=None, properties=['energy'],
                   system_changes=None):
@@ -162,3 +165,11 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
             self.read(atoms)
 
         self.atoms = atoms.copy()
+
+    def get_param(self, parameter):
+        """Return the parameter associated with a calculator,
+        otherwise, return the default value.
+        """
+        value = self.params.get(parameter, defaults[parameter])
+
+        return value
