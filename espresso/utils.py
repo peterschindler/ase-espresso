@@ -8,6 +8,7 @@
 
 import numpy as np
 from ase import constraints
+import re
 
 
 class SpecObject:
@@ -109,7 +110,7 @@ def grepy(filename, search, instance=-1):
     results = []
     with open(filename, 'r') as f:
         for line in f:
-            if re.search(search, line):
+            if re.search(search, line, re.IGNORECASE):
                 results += [line]
 
     if not results:

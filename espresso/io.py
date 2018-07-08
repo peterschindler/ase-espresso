@@ -15,11 +15,6 @@ class Mixins:
         ionssec = self.calculation not in ('scf', 'nscf', 'bands')
 
         # &CONTROL ###
-        print(
-            "&CONTROL\n"
-            "  calculation='{}',\n"
-            "  prefix='calc',".format(self.calculation), file=f)
-
         efield = (self.field['status'])
         dipfield = (self.dipole['status'])
 
@@ -28,12 +23,6 @@ class Mixins:
         print('  etot_conv_thr=1d0,', file=f)
         self.forc_conv_thr /= Rydberg / Bohr
         print('  forc_conv_thr={},'.format(self.forc_conv_thr), file=f)
-
-        ### &SYSTEM ###
-        print('/\n&SYSTEM\n  ibrav=0,', file=f)
-        print('  nat=' + str(self.natoms) + ',', file=f)
-        self.atoms2species()
-        print('  ntyp=' + str(self.nspecies) + ',', file=f)
 
         if self.fix_magmom:
             assert self.spinpol
@@ -168,8 +157,6 @@ class Mixins:
         # &ELECTRONS ###
         print('/\n&ELECTRONS', file=f)
 
-        print('  diagonalization=\'' + self.diagonalization + '\',', file=f)
-
         self.conv_thr /= Rydberg
         print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
 
@@ -208,94 +195,6 @@ class Mixins:
                 print('  cell_dofree=\'' + self.cell_dofree + '\',', file=f)
 
         f.close()
-
-    def atoms2species(self):
-        """Define several properties of the quantum espresso species
-        from the ase atoms object. Takes into account that different
-        spins (or different U etc.) on same kind of chemical elements
-        are considered different species in quantum espresso.
-        """
-        symbols = self.atoms.get_chemical_symbols()
-        masses = self.atoms.get_masses()
-        magmoms = list(self.atoms.get_initial_magnetic_moments())
-        if len(magmoms) < len(symbols):
-            magmoms += list(np.zeros(len(symbols) - len(magmoms), np.float))
-        pos = self.atoms.get_scaled_positions()
-
-        self.species = []
-        self.specprops = []
-        dic = {}
-        symcounter = {}
-        for s in symbols:
-            symcounter[s] = 0
-        for i in range(len(symbols)):
-            key = symbols[i] + '_m%.14e' % (magmoms[i])
-            if key in dic:
-                self.specprops.append((dic[key][1], pos[i]))
-            else:
-                symcounter[symbols[i]] += 1
-                spec = symbols[i] + str(symcounter[symbols[i]])
-                dic[key] = [i, spec]
-                self.species.append(spec)
-                self.specprops.append((spec, pos[i]))
-
-        self.nspecies = len(self.species)
-        self.specdict = {}
-        for i, s in list(dic.values()):
-            if np.isnan(masses[i]):
-                mi = 0.0
-            else:
-                mi = masses[i]
-            self.specdict[s] = utils.SpecObject(
-                s=s.strip('0123456789'),  # chemical symbol w/o index
-                mass=mi,
-                magmom=magmoms[i])
-
-    def get_nvalence(self):
-        nel = {}
-        for x in self.species:
-            el = self.specdict[x].s
-            # get number of valence electrons from pseudopotential or paw setup
-            p = Popen(
-                'egrep -i \'z\ valence|z_valence\' ' + self.psppath +
-                '/' + el + '.UPF | tr \'"\' \' \'',
-                shell=True, stdout=PIPE).stdout
-            out = p.readline().decode('utf-8')
-            for y in out.split():
-                if y[0].isdigit() or y[0] == '.':
-                    nel[el] = int(round(float(y)))
-                    break
-            p.close()
-        nvalence = np.zeros(len(self.specprops), np.int)
-        for i, x in enumerate(self.specprops):
-            nvalence[i] = nel[self.specdict[x[0]].s]
-        return nvalence, nel
-
-    def set_atoms(self, atoms):
-        if self.atoms is None or not self.started:
-            self.atoms = atoms.copy()
-        else:
-            if len(atoms) != len(self.atoms):
-                self.stop()
-                self.nvalence = None
-                self.nel = None
-                self.recalculate = True
-
-            x = atoms.cell - self.atoms.cell
-            if np.max(x) > 1E-13 or np.min(x) < -1E-13:
-                self.stop()
-                self.recalculate = True
-            if (atoms.get_atomic_numbers() !=
-                    self.atoms.get_atomic_numbers()).any():
-                self.stop()
-                self.nvalence = None
-                self.nel = None
-                self.recalculate = True
-            x = atoms.positions - self.atoms.positions
-            if np.max(x) > 1E-13 or np.min(x) < - \
-                    1E-13 or (not self.started and not self.got_energy):
-                self.recalculate = True
-        self.atoms = atoms.copy()
 
     def read(self, atoms):
 
@@ -521,35 +420,11 @@ class Mixins:
                 f.write('  espresso dir        : {}\n'.format(self.exedir))
                 f.write('  pseudo dir          : {}\n'.format(self.psppath))
 
-            self.atoms = atoms.copy()
-            self.atoms2species()
             self.natoms = len(self.atoms)
             self.check_spinpol()
             self.write_input()
 
         self.start()
-
-    def check_spinpol(self):
-        mm = self.atoms.get_initial_magnetic_moments()
-        sp = mm.any()
-        self.summed_magmoms = np.sum(mm)
-        if sp:
-            if not self.spinpol and not self.noncollinear:
-                raise KeyError(
-                    'Explicitly specify spinpol=True or noncollinear=True '
-                    'for spin-polarized systems'
-                )
-            elif abs(self.sigma) <= self.sigma_small and not self.fix_magmom:
-                raise KeyError(
-                    'Please use fix_magmom=True for sigma=0.0 eV and '
-                    'spinpol=True. Hopefully this is not an extended '
-                    'system...?'
-                )
-        else:
-            if self.spinpol and abs(self.sigma) <= self.sigma_small:
-                self.fix_magmom = True
-        if abs(self.sigma) <= self.sigma_small:
-            self.occupations = 'fixed'
 
     def start(self):
         if not self.started:
@@ -670,34 +545,3 @@ class Mixins:
             msg += e.decode('utf-8')
         raise RuntimeError(msg[:len(msg) - 1])
 
-    def open_calculator(self, filename='calc.tgz', mode='w'):
-        """Save the contents of calc.save directory."""
-        savefile = os.path.join(self.scratch, 'calc.save')
-
-        self.topath(filename)
-        self.stop()
-
-        if mode == 'r':
-            self.update(self.atoms)
-            tarfile.open(filename, 'r', savefile)
-
-            with open(savefile + '/fermilevel.txt', 'r') as f:
-                self.inputfermilevel = float(f.readline())
-
-        if mode == 'w':
-            with open(savefile + '/fermilevel.txt', 'w') as f:
-                f.write('{:.15f}\n'.format(self.get_fermi_level()))
-
-            tarfile.open(filename, 'w', savefile)
-
-    def get_fermi_level(self):
-        efermi = self.inputfermilevel
-        if efermi:
-            return efermi
-
-        self.stop()
-        efermi = utils.grepy(self.log, 'Fermi energy')
-        if efermi is not None:
-            efermi = float(efermi.split()[-2])
-
-        return efermi

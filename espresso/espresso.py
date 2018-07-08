@@ -3,11 +3,13 @@ from ase.units import Rydberg
 from . import validate
 from . import subdirs
 from . import espsite
+from . import utils
 from .postprocess import PostProcess
 from .io import Mixins
 import numpy as np
 import atexit
 import warnings
+import os
 defaults = validate.variables
 
 
@@ -38,13 +40,9 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
         self.removesave = True
         self.params = kwargs.copy()
         self.params['ecutwfc'] = ecutwfc / Rydberg
-
-        # Auto create variables from input
-        self.input_update()
-
-        if atoms is not None:
-            self.atoms = atoms
-            atoms.set_calculator(self)
+        atoms.set_calculator(self)
+        self.symbols = self.atoms.get_chemical_symbols()
+        self.species = np.unique(self.symbols)
 
         # Certain keys are used to define IO features or atoms object
         # information. For calculation consistency, user input is ignored.
@@ -68,6 +66,10 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
 
         for bkey in bad_keys:
             del self.params[bkey]
+
+        # Auto create variables from input
+        self.input_update()
+        self.get_nvalence()
 
         print(self.params)
 
@@ -95,7 +97,14 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
         if self.get_param('tstress') is not None:
             self.params['tprnfor'] = True
 
-        
+        self.params['nat'] = len(self.symbols)
+        self.params['ntyp'] = len(self.species)
+
+        # Apply any remaining default settings
+        for key, value in defaults.items():
+            setting = self.get_param(key)
+            if setting is not None:
+                self.params[key] = setting
 
         # if self.beefensemble:
         #     if self.xc.upper().find('BEEF') < 0:
@@ -106,39 +115,8 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
         self.started = False
         self.got_energy = False
 
-    def calculate(self, atoms=None, properties=['energy'],
-                  system_changes=None):
-        """ase 3.7+ compatibility method"""
-        if atoms is None:
-            atoms = self.atoms
-        self.update(atoms)
-
-    def get_potential_energy(self, atoms=None, force_consistent=False):
-        self.update(atoms)
-        if force_consistent:
-            return self.energy_free
-        else:
-            return self.energy_zero
-
-    def get_forces(self, atoms):
-        self.update(atoms)
-        return self.forces.copy()
-
-    def get_stress(self, dummyself=None):
-        """Returns stress tensor in Voigt notation """
-        if self.calcstress:
-            # ASE convention for the stress tensor appears to differ
-            # from the PWscf one by a factor of -1
-            stress = -1.0 * self.get_final_stress()
-            # converting to Voigt notation as expected by ASE
-            stress = np.array([
-                stress[0, 0], stress[1, 1], stress[2, 2], stress[1, 2],
-                stress[0, 2], stress[0, 1]
-            ])
-            self.results['stress'] = stress
-            return stress
-        else:
-            raise NotImplementedError
+    def set_atoms(self, atoms):
+        self.atoms = atoms.copy()
 
     def update(self, atoms):
         if self.atoms is None:
@@ -173,3 +151,71 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
         value = self.params.get(parameter, defaults[parameter])
 
         return value
+
+    def get_nvalence(self):
+        """Get number of valence electrons from pseudopotential or paw setup"""
+        nel = {}
+        for species in self.species:
+            fname = os.path.join(self.get_param('pseudo_dir'), '{}.UPF'.format(species))
+            valence = utils.grepy(fname, 'z valence|z_valence').split()[0]
+            nel[species] = int(float(valence))
+
+        nvalence = np.zeros_like(self.symbols, int)
+        for i, symbol in enumerate(self.symbols):
+            nvalence[i] = nel[symbol]
+
+        return nvalence, nel
+
+    def check_spinpol(self):
+        mm = self.atoms.get_initial_magnetic_moments()
+        sp = mm.any()
+        self.summed_magmoms = np.sum(mm)
+        if sp:
+            if not self.spinpol and not self.noncollinear:
+                raise KeyError(
+                    'Explicitly specify spinpol=True or noncollinear=True '
+                    'for spin-polarized systems'
+                )
+            elif abs(self.sigma) <= self.sigma_small and not self.fix_magmom:
+                raise KeyError(
+                    'Please use fix_magmom=True for sigma=0.0 eV and '
+                    'spinpol=True. Hopefully this is not an extended '
+                    'system...?'
+                )
+        else:
+            if self.spinpol and abs(self.sigma) <= self.sigma_small:
+                self.fix_magmom = True
+        if abs(self.sigma) <= self.sigma_small:
+            self.occupations = 'fixed'
+
+    def get_fermi_level(self):
+        efermi = self.inputfermilevel
+        if efermi:
+            return efermi
+
+        self.stop()
+        efermi = utils.grepy(self.log, 'Fermi energy')
+        if efermi is not None:
+            efermi = float(efermi.split()[-2])
+
+        return efermi
+
+    def open_calculator(self, filename='calc.tgz', mode='w'):
+        """Save the contents of calc.save directory."""
+        savefile = os.path.join(self.scratch, 'calc.save')
+
+        self.topath(filename)
+        self.stop()
+
+        if mode == 'r':
+            self.update(self.atoms)
+            tarfile.open(filename, 'r', savefile)
+
+            with open(savefile + '/fermilevel.txt', 'r') as f:
+                self.inputfermilevel = float(f.readline())
+
+        if mode == 'w':
+            with open(savefile + '/fermilevel.txt', 'w') as f:
+                f.write('{:.15f}\n'.format(self.get_fermi_level()))
+
+            tarfile.open(filename, 'w', savefile)
