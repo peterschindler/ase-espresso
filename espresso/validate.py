@@ -1,11 +1,163 @@
+from ase.units import Rydberg, Bohr
+import numpy as np
 import os
-import ase
 import warnings
 
 
-def atoms(calc, val):
-    """The Atoms object"""
-    assert isinstance(val, ase.Atoms)
+def occupations(calc, val):
+    """"""
+    assert isinstance(val, str)
+    values = ['smearing', 'tetrahedra', 'tetrahedra_lin',
+              'tetrahedra_opt', 'fixed', 'from_input']
+
+    assert val in values
+
+
+def degauss(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg
+
+    # Without smearing, we enforce fixed occupation.
+    if abs(val) <= 1e-13:
+        calc.params['occupations'] = 'fixed'
+        moments = calc.atoms.get_initial_magnetic_moments()
+        calc.params['tot_magnetization'] = moments.sum()
+        warnings.warn("'degauss' is zero. Enforcing fixed "
+                      "overall magnetic moment")
+
+    return val
+
+
+def lspinorb(calc, val):
+    """"""
+    assert isinstance(val, bool)
+    assert calc.get_param('noncolin')
+
+
+def nspin(calc, val):
+    """"""
+    assert val in [2, 4]
+    assert calc.get_param('occupations')
+    assert calc.get_param('smearing')
+    assert calc.get_param('degauss')
+    if val == 4:
+        assert calc.get_param('noncolin')
+
+    moments = calc.atoms.get_initial_magnetic_moments()
+    assert moments.any()
+
+
+def noncolin(calc, val):
+    """"""
+    assert isinstance(val, bool)
+    calc.params['nspin'] = 4
+    nspin(calc, 4)
+
+
+def tot_magnetization(calc, val):
+    """"""
+    assert isinstance(val, int)
+    nspin(calc, calc.get_param('nspin'))
+
+
+def ion_dynamics(calc, val):
+    """"""
+    assert isinstance(val, str)
+
+    calculator = calc.get_param('calculation')
+    calculation(calc, calculator)
+
+    if calculator == 'relax':
+        if calc.atoms.constraints is not None:
+            values = ['damp']
+        else:
+            values = ['bfgs', 'damp']
+
+        assert val in values
+
+    elif calculator == 'md':
+        if calc.atoms.constraints is not None:
+            values = ['verlet']
+        else:
+            values = ['verlet', 'langevin', 'langevin-smc']
+
+        assert val in values
+
+    elif calculator == 'vc-relax':
+        values = ['bfgs', 'damp']
+        assert val in values
+
+    elif calculator == 'vc-md':
+        values = ['beeman']
+        assert val in values
+
+    else:
+        raise ValueError("ion_dynamics requires calculator to be "
+                         "'relax', 'md', 'vc-relax', or 'vc-md'")
+
+
+def nbnd(calc, val):
+    """If nbands is negative, assign additional bands."""
+    assert isinstance(val, int)
+
+    if val < 0:
+        nvalence, nel = calc.get_nvalence()
+
+        if calc.get_param('noncolin'):
+            val = nvalence.sum() - val * 2
+        else:
+            val = int(nvalence.sum() / 2) - val
+
+    return val
+
+
+def etot_conv_thr(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg
+
+    return val
+
+
+def forc_conv_thr(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg / Bohr
+
+    return val
+
+
+def ecutwfc(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg
+
+    return val
+
+
+def ecutrho(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg
+
+    return val
+
+
+def conv_thr(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg
+
+    return val
+
+
+def ecutfock(calc, val):
+    """"""
+    assert isinstance(val, (float, int))
+    val /= Rydberg
+
+    return val
 
 
 def calculation(calc, val):
@@ -36,6 +188,28 @@ def disk_io(calc, val):
         assert val in values
 
 
+def kpts(calc, val):
+    """"""
+    assert isinstance(val, (tuple, list, np.ndarray))
+    assert len(val) == 3
+
+
+def input_dft(calc, val):
+    """"""
+    assert isinstance(val, str)
+
+
+def mixing_beta(calc, val):
+    """"""
+    assert isinstance(val, float)
+    assert (val > 0) and (val < 1)
+
+
+def nosym(calc, val):
+    """"""
+    assert isinstance(val, bool)
+
+
 variables = {
     # CONTROL
     'calculation': 'scf',
@@ -53,8 +227,8 @@ variables = {
     'prefix': 'calc',
     'lkpoint_dir': None,
     'max_seconds': None,
-    'etot_conv_thr': 0,
-    'forc_conv_thr': 1e-3,
+    'etot_conv_thr': 0.0,
+    'forc_conv_thr': 0.05 / (Rydberg / Bohr),
     'disk_io': None,
     'pseudo_dir': os.environ['ESP_PSP_PATH'],
     'tefield': None,
@@ -98,11 +272,11 @@ variables = {
     'no_t_rev': None,
     'force_symmorphic': None,
     'use_all_frac': None,
-    'occupations': None,
+    'occupations': 'smearing',
     'one_atom_occupations': None,
     'starting_spin_angle': None,
-    'degauss': None,
-    'smearing': None,
+    'degauss': 0.1 / Rydberg,
+    'smearing': 'fd',
     'nspin': None,
     'noncolin': None,
     'ecfixed': None,
@@ -172,7 +346,7 @@ variables = {
     'conv_thr_init': None,
     'conv_thr_multi': None,
     'mixing_mode': None,
-    'mixing_beta': 0.7,
+    'mixing_beta': None,
     'mixing_ndim': None,
     'mixing_fixed_ns': None,
     'diagonalization': None,

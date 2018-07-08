@@ -1,96 +1,66 @@
-from ase.calculators.calculator import FileIOCalculator
-from ase.units import Rydberg
+from . import siteconfig
 from . import validate
-from . import subdirs
-from . import espsite
-from . import utils
-from .postprocess import PostProcess
-from .io import Mixins
-import numpy as np
+import ase
 import atexit
+import subprocess
+import numpy as np
+import tarfile
 import warnings
+import shutil
 import os
 defaults = validate.variables
 
 
-class ConvergenceError(Exception):
-    pass
+class Espresso(ase.calculators.calculator.FileIOCalculator):
+    """Decaf Espresso
 
-
-class KohnShamConvergenceError(ConvergenceError):
-    pass
-
-
-class Espresso(PostProcess, Mixins, FileIOCalculator):
-    """ASE interface for Quantum Espresso"""
+    A Light weight ASE interface for Quantum Espresso
+    """
 
     implemented_properties = [
-        'energy', 'free_energy', 'forces', 'stress', 'magmom', 'magmoms'
-    ]
+        'energy', 'forces', 'stress', 'magmom', 'magmoms']
 
     def __init__(
             self,
             atoms,
-            ecutwfc,
-            site=espsite.config(),
             **kwargs):
-
-        self.site = site
-        self.removewf = True
-        self.removesave = True
-        self.params = kwargs.copy()
-        self.params['ecutwfc'] = ecutwfc / Rydberg
         atoms.set_calculator(self)
+        self.params = kwargs.copy()
+        self.results = {}
+
+        self.site = siteconfig.SiteConfig.check_scheduler()
+        self.natoms = len(self.atoms)
         self.symbols = self.atoms.get_chemical_symbols()
         self.species = np.unique(self.symbols)
 
-        # Certain keys are used to define IO features or atoms object
+        # Certain keys are used for fixed IO features or atoms object
         # information. For calculation consistency, user input is ignored.
-        ignored_keys = ['prefix', 'ibrav', 'nat', 'ntyp']
+        ignored_keys = ['prefix', 'outdir', 'restart_mode', 'ibrav', 'celldm',
+                        'A', 'B', 'C', 'cosAB', 'cosAC', 'cosBC', 'nat',
+                        'ntyp']
 
         # Run validation checks
-        bad_keys = []
-        for key, val in self.params.items():
-            if key in validate.__dict__:
+        init_params = self.params.copy()
+        for key, val in init_params.items():
+
+            if key in ignored_keys:
+                del self.params[key]
+            elif key in validate.__dict__:
                 f = validate.__dict__[key]
-                f(self, val)
+                new_val = f(self, val)
+
+                # Used to convert values from eV to Ry
+                if new_val is not None:
+                    self.params[key] = new_val
             else:
                 if key not in defaults:
                     warnings.warn('Not a valid key {}'.format(key))
-                    bad_keys += [key]
+                    del self.params[key]
                 else:
                     warnings.warn('No validation for {}'.format(key))
 
-            if key in ignored_keys:
-                bad_keys += [key]
-
-        for bkey in bad_keys:
-            del self.params[bkey]
-
-        # Auto create variables from input
-        self.input_update()
-        self.get_nvalence()
-
-        print(self.params)
-
-    def input_update(self):
-        """Run initialization functions, such that this can be called
-        if variables in espresso are changes using set or directly.
-        """
-        outdir = self.get_param('outdir')
-        self.localtmp = subdirs.mklocaltmp(outdir, self.site)
-        self.log = self.localtmp + '/log.pwo'
-        self.scratch = subdirs.mkscratch(self.localtmp, self.site)
-
-        atexit.register(subdirs.cleanup, self.localtmp, self.scratch,
-                        self.removewf, self.removesave, self, self.site)
-
-        # sdir is the directory the script is run or submitted from
-        self.sdir = subdirs.getsubmitorcurrentdir(self.site)
-
-        if self.get_param('ecutrho') is None:
-            self.params['ecutrho'] = self.get_param('ecutwfc') * 10
-
+    def initialize(self):
+        """Create the input file to start the calculation."""
         if self.get_param('dipfield') is not None:
             self.params['tefield'] = True
 
@@ -106,43 +76,27 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
             if setting is not None:
                 self.params[key] = setting
 
-        # if self.beefensemble:
-        #     if self.xc.upper().find('BEEF') < 0:
-        #         raise KeyError(
-        #             'ensemble-energies only work with xc=BEEF '
-        #             'or variants of it!')
+        # ASE format for the pseudopotential file location.
+        self.params['pseudopotentials'] = {}
+        for species in self.species:
+            self.params['pseudopotentials'][species] = '{}.UPF'.format(species)
 
-        self.started = False
-        self.got_energy = False
+        ase.io.write('pwcsf.pwi', self.atoms, **self.params)
+
+    def calculate(self, atoms, properties=['energy'], changes=None):
+        """Perform a calculation."""
+        self.initialize()
+        self.create_outdir()
+        self.run()
+
+        atoms = ase.io.read('pwcsf.pwo')
+        self.set_results(atoms)
 
     def set_atoms(self, atoms):
         self.atoms = atoms.copy()
 
-    def update(self, atoms):
-        if self.atoms is None:
-            self.set_atoms(atoms)
-
-        x = atoms.cell - self.atoms.cell
-        morethanposchange = (np.max(x) > 1e-13
-                             or np.min(x) < -1e-13
-                             or len(atoms) != len(self.atoms)
-                             or (atoms.get_atomic_numbers() !=
-                                 self.atoms.get_atomic_numbers()).any())
-        x = atoms.positions - self.atoms.positions
-
-        if (np.max(x) > 1e-13
-            or np.min(x) < -1e-13
-            or morethanposchange
-            or (not self.started and not self.got_energy)
-            or self.recalculate):
-
-            self.recalculate = True
-            self.results = {}
-            if self.calculation in ('scf', 'nscf') or morethanposchange:
-                self.stop()
-            self.read(atoms)
-
-        self.atoms = atoms.copy()
+    def set_results(self, atoms):
+        self.results = atoms._calc.results
 
     def get_param(self, parameter):
         """Return the parameter associated with a calculator,
@@ -153,69 +107,105 @@ class Espresso(PostProcess, Mixins, FileIOCalculator):
         return value
 
     def get_nvalence(self):
-        """Get number of valence electrons from pseudopotential or paw setup"""
+        """Get number of valence electrons from pseudopotential files"""
+        if hasattr(self, 'nel'):
+            return self.nvalence, self.nel
+
         nel = {}
         for species in self.species:
-            fname = os.path.join(self.get_param('pseudo_dir'), '{}.UPF'.format(species))
-            valence = utils.grepy(fname, 'z valence|z_valence').split()[0]
+            fname = os.path.join(
+                self.get_param('pseudo_dir'), '{}.UPF'.format(species))
+            valence = siteconfig.grepy(fname, 'z valence|z_valence').split()[0]
             nel[species] = int(float(valence))
 
         nvalence = np.zeros_like(self.symbols, int)
         for i, symbol in enumerate(self.symbols):
             nvalence[i] = nel[symbol]
 
+        # Store the results for later.
+        self.nvalence, self.nel = nvalence, nel
+
         return nvalence, nel
 
-    def check_spinpol(self):
-        mm = self.atoms.get_initial_magnetic_moments()
-        sp = mm.any()
-        self.summed_magmoms = np.sum(mm)
-        if sp:
-            if not self.spinpol and not self.noncollinear:
-                raise KeyError(
-                    'Explicitly specify spinpol=True or noncollinear=True '
-                    'for spin-polarized systems'
-                )
-            elif abs(self.sigma) <= self.sigma_small and not self.fix_magmom:
-                raise KeyError(
-                    'Please use fix_magmom=True for sigma=0.0 eV and '
-                    'spinpol=True. Hopefully this is not an extended '
-                    'system...?'
-                )
-        else:
-            if self.spinpol and abs(self.sigma) <= self.sigma_small:
-                self.fix_magmom = True
-        if abs(self.sigma) <= self.sigma_small:
-            self.occupations = 'fixed'
-
     def get_fermi_level(self):
-        efermi = self.inputfermilevel
-        if efermi:
-            return efermi
-
-        self.stop()
-        efermi = utils.grepy(self.log, 'Fermi energy')
+        efermi = siteconfig.grepy('pwcsf.pwo', 'Fermi energy')
         if efermi is not None:
             efermi = float(efermi.split()[-2])
 
         return efermi
 
-    def open_calculator(self, filename='calc.tgz', mode='w'):
-        """Save the contents of calc.save directory."""
-        savefile = os.path.join(self.scratch, 'calc.save')
+    def load_calculator(self, filename='calc.tar.gz'):
+        """Unpack the contents of calc.save directory."""
+        with tarfile.open(filename, 'r:gz') as f:
+            f.extractall()
 
-        self.topath(filename)
-        self.stop()
+    def create_outdir(self):
+        """Create the necessary directory structure to run the calculation and
+        assign file names
+        """
+        self.localtmp = self.site.make_localtmp('')
+        self.scratch = self.site.make_scratch()
+        self.log = self.localtmp.joinpath('pwcsf.pwo')
 
-        if mode == 'r':
-            self.update(self.atoms)
-            tarfile.open(filename, 'r', savefile)
+        atexit.register(self.clean)
 
-            with open(savefile + '/fermilevel.txt', 'r') as f:
-                self.inputfermilevel = float(f.readline())
+    @siteconfig.preserve_cwd
+    def run(self):
+        """Execute the expresso program `pw.x`"""
+        mypath = os.path.abspath(os.path.dirname(__file__))
+        exedir = subprocess.check_output(['which', 'pw.x']).decode()
+        psppath = self.get_param('pseudo_dir')
 
-        if mode == 'w':
-            with open(savefile + '/fermilevel.txt', 'w') as f:
-                f.write('{:.15f}\n'.format(self.get_fermi_level()))
+        title = '{:<14}: {}\n{:<14}: {}{:<14}: {}\n'.format(
+            'python dir', mypath, 'espresso dir',
+            exedir, 'psuedo dir', psppath)
 
-            tarfile.open(filename, 'w', savefile)
+        # This will remove the old log file.
+        with open(self.log, 'w') as f:
+            f.write(title)
+
+        if self.site.batchmode:
+            self.localtmp.chdir()
+            shutil.copy(self.localtmp.joinpath('pwcsf.pwi'), self.scratch)
+
+            command = self.site.get_proc_mpi_command(
+                self.scratch, 'pw.x ' + self.parflags + ' -in pwcsf.pwi')
+
+            with open(self.log, 'ab') as f:
+                exitcode = subprocess.call(command, stdout=f)
+            if exitcode != 0:
+                raise RuntimeError('something went wrong:', exitcode)
+
+        else:
+            pwinp = self.localtmp.joinpath('pwcsf.pwi')
+            shutil.copy(pwinp, self.scratch)
+            command = ['pw.x', '-in', 'pwcsf.pwi']
+
+            self.scratch.chdir()
+            with open(self.log, 'ab') as f:
+                exitcode = subprocess.call(command, stdout=f)
+
+    def clean(self):
+        """Remove the temporary files and directories"""
+        os.chdir(self.site.submitdir)
+
+        savefile = self.scratch.joinpath('calc.save')
+        newsave = self.site.submitdir.joinpath('calc.tar.gz')
+
+        if os.path.exists(newsave):
+            newsave.remove()
+
+        if os.path.exists(savefile):
+            # Remove wavecars by default
+            for f in savefile.files('wfc*.dat'):
+                f.remove()
+
+            with tarfile.open(newsave, 'w:gz') as f:
+                f.add(savefile, arcname=savefile.basename())
+
+        self.scratch.rmtree_p()
+
+        if (hasattr(self.site, 'mpdshutdown')
+           and 'QEASE_MPD_ISSHUTDOWN' not in list(os.environ.keys())):
+            os.environ['QEASE_MPD_ISSHUTDOWN'] = 'yes'
+            os.system(self.site.mpdshutdown)
