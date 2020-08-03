@@ -3746,7 +3746,7 @@ class espresso(Calculator):
         call('cp ' + self.localtmp + '/avg.in ' + self.scratch, shell=True)
         call('cd ' + self.scratch + ' ; ' + 'average.x < avg.in >>' +
              self.localtmp + '/avg.out', shell=True)
-        call('cp ' + self.scratch + '/avg.dat ' + self.localtmp)
+        call('cp ' + self.scratch + '/avg.dat ' + self.localtmp, shell=True)
 
         # Pick a good place to sample vacuum level
         cell_length = self.atoms.cell[edir - 1][edir - 1] / Bohr
