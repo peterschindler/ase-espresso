@@ -438,7 +438,7 @@ class espresso(Calculator):
         spin-polarized) over two nodes.
      verbose ('low')
         Can be 'high' or 'low'
-        """ 
+        """
         self.exedir = exedir
         self.outdir = outdir
         self.onlycreatepwinp = onlycreatepwinp
@@ -2330,31 +2330,31 @@ class espresso(Calculator):
         # skip over previous runs in log in case the current log has been
         # appended to old ones
         for i in range(n):
-            s.readline().decode('utf-8')
+            s.readline()
 
-        a = s.readline().decode('utf-8')
+        a = s.readline()
         while a[:11] != '     celldm':
-            a = s.readline().decode('utf-8')
+            a = s.readline()
         alat = float(a.split()[1]) / 1.889726
-        a = s.readline().decode('utf-8')
+        a = s.readline()
         while a[:12] != '     crystal':
-            a = s.readline().decode('utf-8')
+            a = s.readline()
         cell = []
         for i in range(3):
             cell.append([float(x) for x in
-                         s.readline().decode('utf-8').split()[3:6]])
+                         s.readline().split()[3:6]])
         cell = np.array(cell)
-        a = s.readline().decode('utf-8')
+        a = s.readline()
         while a[:12] != '     site n.':
-            a = s.readline().decode('utf-8')
+            a = s.readline()
         pos = []
         syms = ''
-        y = s.readline().decode('utf-8').split()
+        y = s.readline().split()
         while len(y) > 0:
             nf = len(y)
             pos.append([float(x) for x in y[nf - 4:nf - 1]])
             syms += y[1].strip('0123456789')
-            y = s.readline().decode('utf-8').split()
+            y = s.readline().split()
         pos = np.array(pos) * alat
         natoms = len(pos)
 
@@ -2363,20 +2363,20 @@ class espresso(Calculator):
         atoms = Atoms(syms, pos, cell=cell * alat, pbc=(1, 1, 1))
 
         coord = 'angstrom)'
-        a = s.readline().decode('utf-8')
+        a = s.readline()
         while a != '':
             while a[:7] != 'CELL_PA' and a[:7] != 'ATOMIC_' and a != '':
-                a = s.readline().decode('utf-8')
+                a = s.readline()
             if a == '':
                 break
             if a[0] == 'A':
                 coord = a.split('(')[-1]
                 for i in range(natoms):
-                    pos[i][:] = s.readline().decode('utf-8').split()[1:4]
+                    pos[i][:] = s.readline().split()[1:4]
             else:
                 for i in range(3):
-                    cell[i][:] = s.readline().decode('utf-8').split()
-            a = s.readline().decode('utf-8')
+                    cell[i][:] = s.readline().split()
+            a = s.readline()
 
         atoms.set_cell(cell * alat, scale_atoms=False)
 
@@ -3746,11 +3746,12 @@ class espresso(Calculator):
         call('cp ' + self.localtmp + '/avg.in ' + self.scratch, shell=True)
         call('cd ' + self.scratch + ' ; ' + 'average.x < avg.in >>' +
              self.localtmp + '/avg.out', shell=True)
+        call('cp ' + self.scratch + '/avg.dat ' + self.localtmp)
 
         # Pick a good place to sample vacuum level
         cell_length = self.atoms.cell[edir - 1][edir - 1] / Bohr
         vacuum_pos = self.find_max_empty_space(edir) * cell_length
-        avg_out = open(self.localtmp + '/avg.out', 'r')
+        avg_out = open(self.localtmp + '/avg.dat', 'r')
         record = False
         average_data = []
         lines = list(avg_out)
