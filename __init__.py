@@ -238,6 +238,7 @@ class espresso(Calculator):
             command=None,
             # ENVIRON PART (credit Stefan Ringe)
             environ_keys=None,  # Environ keys given as dictionary, if given use_environ=True
+            environ_extra_keys=None
     ):
         """
     Construct an ase-espresso calculator.
@@ -534,6 +535,7 @@ class espresso(Calculator):
             self.parflags = ''
             self.serflags = ''
             self.use_environ = False
+        self.environ_extra_keys=environ_extra_keys
         if parflags is not None:
             self.parflags += parflags
         self.single_calculator = single_calculator
@@ -924,23 +926,63 @@ class espresso(Calculator):
     def writeenvinputfile(self, filename='environ.in'):
         """Write Environ input file"""
         if self.cancalc:
-            fname = self.localtmp + '/' + filename
+            fname = self.localtmp+'/'+filename
+            #f = open(self.localtmp+'/pw.inp', 'w')
         else:
-            fname = self.pwinp.split('/')[:-1] + '/' + filename
-        f = open(fname, 'w')
-        f.write(' &ENVIRON\n')
-        f.write('   !\n')
+            fname = self.pwinp.split('/')[:-1]+'/'+filename
+        f = open(fname,'w')
+        f.write('&ENVIRON\n')
+        f.write('  !\n')
         for key in self.environ_keys:
-            value = self.environ_keys[key]
-            if type(value) == str:
-                f.write('   {} = \'{}\'\n'.format(key, self.environ_keys[key]))
+            value=self.environ_keys[key]
+            if type(value)==bool:
+                if value:
+                    value='.true.'
+                else:
+                    value='.false.'
+                f.write('  {} = {}\n'.format(key,value))
+            elif type(value)==str:
+                f.write('  {} = \'{}\'\n'.format(key, value))
             elif 'e' in str(value):
-                value_str = str(value).replace('e', 'D')
-                f.write('   {} = {}\n'.format(key, value_str))
+                value_str=str(value).replace('e','D')
+                f.write('  {} = {}\n'.format(key, value_str))
             else:
-                f.write('   {} = {}\n'.format(key, self.environ_keys[key]))
-        f.write('   !\n')
-        f.write(' /')
+                f.write('  {} = {}\n'.format(key, self.environ_keys[key]))
+        f.write('  !\n')
+        f.write('/\n')
+        if self.environ_extra_keys is not None:
+            for key in self.environ_extra_keys:
+                #f.write('{} {}\n'.format(key,unit))
+                if key in ['EXTERNAL_CHARGES','DIELECTRIC_REGIONS']:
+                    #CARDs
+                    if 'unit' not in self.environ_extra_keys[key]:
+                        unit='bohr'
+                    else:
+                        unit=self.environ_extra_keys[key]['unit']
+                    f.write('{} {}\n'.format(key,unit))
+                    for vals in self.environ_extra_keys[key]['settings']:
+                        f.write('  {}\n'.format(' '.join([str(vv) for vv in vals])))
+                else:
+                    #NAMELISTs
+                    f.write('&{}\n'.format(key))
+                    f.write('  !\n')
+                    for key2 in self.environ_extra_keys[key]:
+                        value=self.environ_extra_keys[key][key2]
+                        if type(value)==bool:
+                            if value:
+                                value='.true.'
+                            else:
+                                value='.false.'
+                            f.write('  {} = {}\n'.format(key2,value))
+                        elif type(value)==str:
+                            f.write('  {} = \'{}\'\n'.format(key2,value))
+                        elif 'e' in str(value):
+                            value_str=str(value).replace('e','D')
+                            f.write('  {} = {}\n'.format(key2, value_str))
+                        else:
+                            f.write('  {} = {}\n'.format(key2,value))
+                    f.write('  !\n')
+                    f.write('/\n')
         f.close()
 
     def writeinputfile(self,
