@@ -739,7 +739,7 @@ class espresso(Calculator):
             if not self.txt:
                 self.log = self.localtmp + '/log'
             elif self.txt[0] != '/':
-                self.log = self.sdir + '/log'
+                self.log = self.sdir+'/'+self.txt
             else:
                 self.log = self.txt
             self.scratch = subdirs.mkscratch(self.localtmp, site)
