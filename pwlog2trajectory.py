@@ -9,10 +9,10 @@
 # or http://www.gnu.org/copyleft/gpl.txt .
 #****************************************************************************
 
-
+from subprocess import Popen, PIPE
 from sys import argv, exit, stderr
 if len(argv) != 3:
-    print >>stderr, 'usage: ' + argv[0] + ' pw-log output.traj'
+    print('usage: ' + argv[0] + ' pw-log output.traj', file = stderr)
     exit(1)
 
 import numpy as np
@@ -44,11 +44,11 @@ def get_total_energy(s):
         energy -= 0.5 * float(a.split()[-2]) * rydberg
     return energy
 
-p = popen('grep -n Giannozzi ' + argv[1] + ' 2>/dev/null | tail -1', 'r')
+p = Popen('grep -a -n Giannozzi ' + argv[1] + ' 2>/dev/null | tail -1', shell=True, stdout=PIPE).stdout
 try:
     n = int(p.readline().split()[0].strip(':'))
 except:
-    print >>stderr, 'No valid pw-log at ' + argv[1] + ' found.'
+    print('No valid pw-log at ' + argv[1] + ' found.', file = stderr)
     p.close()
     exit(2)
 p.close()
@@ -96,7 +96,7 @@ en = get_total_energy(s)
 if en is not None:
     calc.results['energy'] = en
 else:
-    print >>stderr, 'no total energy found'
+    print('no total energy found', file = stderr)
     exit(3)
 
 # Write to .traj file
