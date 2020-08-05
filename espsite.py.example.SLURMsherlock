@@ -46,7 +46,7 @@ class config:
         return (execute.stdin, execute.stdout)
 
     def do_perProcMpiExec_outputonly(self, workdir, program):
-        return Popen(self.perProcMpiExec % (workdir, program), stdout=PIPE).stdout
+        return Popen(self.perProcMpiExec % (workdir, program), shell=True, stdout=PIPE).stdout
 
     def runonly_perProcMpiExec(self, workdir, program):
         os.system(self.perProcMpiExec % (workdir, program))
