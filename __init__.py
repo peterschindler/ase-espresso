@@ -1676,7 +1676,7 @@ class espresso(Calculator):
             kp = self.kpts
         else:
             kp = overridekpts
-        if kp is 'gamma':
+        if kp == 'gamma':
             print('K_POINTS Gamma', file=f)
         else:
             x = np.shape(kp)
