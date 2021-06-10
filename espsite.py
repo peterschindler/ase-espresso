@@ -1,14 +1,16 @@
 import os
+from subprocess import Popen, PIPE
 
 class Config:
-    def __init__(self,nproc):
+    def __init__(self, nproc):
         self.scratch = '.'
         self.submitdir = '.'
         self.batch = False
+        self.procs = []
         # self.mpi_not_setup = True
         if 'ESP_PSP_PATH' not in os.environ:
             os.environ['ESP_PSP_PATH'] = '.'
-        self.nproc = nproc    
+        self.nproc = nproc
         self.perHostMpiExec =  'mpiexec -np '+str(self.nproc)
         self.perProcMpiExec =  'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
         self.perSpecProcMpiExec = 'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
@@ -26,4 +28,3 @@ class Config:
     def do_perSpecProcMpiExec(self, machinefile, nproc, workdir, program):
         execute = Popen(self.perProcMpiExec % (workdir, program), shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
         return (execute.stdin, execute.stdout, execute.stderr)
-

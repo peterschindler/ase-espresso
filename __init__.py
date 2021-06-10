@@ -644,8 +644,9 @@ class espresso(Calculator):
         self.name = name
 
         # set up the site object
-        if not nproc:
-            nproc = multiprocessing.cpu_count() 
+        total_cpus = multiprocessing.cpu_count()
+        if not nproc or nproc > total_cpus:
+            nproc = total_cpus
         self.site = espsite.Config(nproc)
 
         # give original espresso style input names
