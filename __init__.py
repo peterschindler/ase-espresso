@@ -8,17 +8,20 @@
 
 import os
 from subprocess import Popen, PIPE, call
+import multiprocessing
 import warnings
 import atexit
 import sys
+
 import numpy as np
 from ase import Atoms
 from ase.units import Rydberg, Bohr, Hartree
+from ase.calculators.calculator import kptdensity2monkhorstpack
+
 from .atomic_configs import hundmag
 from .worldstub import world
 from . import subdirs
 from . import utils
-from ase.calculators.calculator import kptdensity2monkhorstpack
 
 try:
     from ase.calculators.calculator import FileIOCalculator as Calculator
@@ -33,7 +36,6 @@ except ImportError:
         '*** You may use the espsite.py.example.* in the git checkout as templates.'
     )
     raise ImportError
-site = espsite.config()
 gitver = 'GITVERSION'
 
 # ase controlled pw.x's register themselves here, so they can be
@@ -236,12 +238,13 @@ class espresso(Calculator):
             ignore_bad_restart_file=False,
             label=None,
             command=None,
+            nproc=None,
             # ENVIRON PART (credit Stefan Ringe)
             environ_keys=None,  # Environ keys given as dictionary, if given use_environ=True
             environ_extra_keys=None
     ):
-        """
-    Construct an ase-espresso calculator.
+    """Construct an ase-espresso calculator.
+
     Parameters (with defaults in parentheses):
      atoms (None)
         list of atoms object to be attached to calculator
@@ -640,6 +643,11 @@ class espresso(Calculator):
         self.results = results
         self.name = name
 
+        # set up the site object
+        if not nproc:
+            nproc = multiprocessing.cpu_count() 
+        self.site = espsite.Config(nproc)
+
         # give original espresso style input names
         # preference over ase / dacapo - style names
         if ecutwfc is not None:
@@ -664,7 +672,7 @@ class espresso(Calculator):
             self.proclist = False
         else:
             self.proclist = True
-            procs = site.procs + []
+            procs = self.site.procs + []
             procs.sort()
             nprocs = len(procs)
             self.myncpus = nprocs / numcalcs
@@ -678,7 +686,7 @@ class espresso(Calculator):
         if atoms is not None:
             atoms.set_calculator(self)
 
-        if hasattr(site, 'mpi_not_setup') and self.onlycreatepwinp is None:
+        if hasattr(self.site, 'mpi_not_setup') and self.onlycreatepwinp is None:
             print(
                 '*** Without cluster-adjusted espsite.py, ase-espresso can only be used\n'
                 '*** to create input files for pw.x via the option onlycreatepwinp.\n'
@@ -695,7 +703,7 @@ class espresso(Calculator):
         self.create_outdir()  # Create the tmp output folder
 
         # sdir is the directory the script is run or submitted from
-        self.sdir = subdirs.getsubmitorcurrentdir(site)
+        self.sdir = subdirs.getsubmitorcurrentdir(self.site)
 
         if self.dw is None:
             self.dw = 10. * self.pw
@@ -735,14 +743,14 @@ class espresso(Calculator):
 
     def create_outdir(self):
         if self.onlycreatepwinp is None:
-            self.localtmp = subdirs.mklocaltmp(self.outdir, site)
+            self.localtmp = subdirs.mklocaltmp(self.outdir, self.site)
             if not self.txt:
                 self.log = self.localtmp + '/log'
             elif self.txt[0] != '/':
                 self.log = self.sdir+'/'+self.txt
             else:
                 self.log = self.txt
-            self.scratch = subdirs.mkscratch(self.localtmp, site)
+            self.scratch = subdirs.mkscratch(self.localtmp, self.site)
             if self.output is not None:
                 if 'removewf' in self.output:
                     removewf = self.output['removewf']
@@ -756,7 +764,7 @@ class espresso(Calculator):
                 removewf = True
                 removesave = False
             atexit.register(subdirs.cleanup, self.localtmp, self.scratch,
-                            removewf, removesave, self, site)
+                            removewf, removesave, self, self.site)
             self.cancalc = True
         else:
             self.pwinp = self.onlycreatepwinp
@@ -1065,8 +1073,8 @@ class espresso(Calculator):
                 file=f)
 
         # turn on fifo communication if espsite.py is set up that way
-        if hasattr(site, 'fifo'):
-            if site.fifo:
+        if hasattr(self.site, 'fifo'):
+            if self.site.fifo:
                 print('  ase_fifo=.true.,', file=f)
 
         # automatically generated parameters
@@ -2112,30 +2120,30 @@ class espresso(Calculator):
                 while len(espresso_calculators) > 0:
                     espresso_calculators.pop().stop()
                 espresso_calculators.append(self)
-            if site.batch:
+            if self.site.batch:
                 cdir = os.getcwd()
                 os.chdir(self.localtmp)
-                call(site.perHostMpiExec + ' cp ' + self.localtmp +
+                call(self.site.perHostMpiExec + ' cp ' + self.localtmp +
                      '/pw.inp ' + self.scratch, shell=True)
                 if self.use_environ:
-                    call(site.perHostMpiExec + ' cp ' + self.localtmp +
+                    call(self.site.perHostMpiExec + ' cp ' + self.localtmp +
                          '/environ.in ' + self.scratch, shell=True)
 
                 if self.calculation != 'hund':
                     if not self.proclist:
-                        self.cinp, self.cout = site.do_perProcMpiExec(
+                        self.cinp, self.cout = self.site.do_perProcMpiExec(
                             self.scratch, self.exedir + 'pw.x ' +
                             self.parflags + ' -in pw.inp')
                     else:
                         (self.cinp,
                          self.cout,
-                         self.cerr) = site.do_perSpecProcMpiExec(
+                         self.cerr) = self.site.do_perSpecProcMpiExec(
                             self.mycpus, self.myncpus, self.scratch,
                             self.exedir + 'pw.x ' + self.parflags +
                             ' -in pw.inp|' + self.mypath + '/espfilter ' + str(
                                 self.natoms) + ' ' + self.log + '0')
                 else:
-                    site.runonly_perProcMpiExec(
+                    self.site.runonly_perProcMpiExec(
                         self.scratch, self.exedir + 'pw.x ' + self.serflags +
                         ' -in pw.inp >>' + self.log)
                     call(
@@ -2147,12 +2155,12 @@ class espresso(Calculator):
                         utils.num2str(
                             self.totmag) + ",/ >" + self.localtmp + "/pw2.inp",
                         shell=True)
-                    call(site.perHostMpiExec + ' cp ' + self.localtmp +
+                    call(self.site.perHostMpiExec + ' cp ' + self.localtmp +
                          '/pw2.inp ' + self.scratch, shell=True)
                     if self.use_environ:
-                        call(site.perHostMpiExec + ' cp ' + self.localtmp +
+                        call(self.site.perHostMpiExec + ' cp ' + self.localtmp +
                              '/environ.in ' + self.scratch, shell=True)
-                    self.cinp, self.cout = site.do_perProcMpiExec(
+                    self.cinp, self.cout = self.site.do_perProcMpiExec(
                         self.scratch,
                         self.exedir + 'pw.x ' + self.parflags + ' -in pw2.inp')
                 os.chdir(cdir)
@@ -2649,21 +2657,21 @@ class espresso(Calculator):
         if log is not None:
             ll += ' >> {}/{}'.format(self.localtmp, log)
 
-        if site.batch and parallel:
+        if self.site.batch and parallel:
             cdir = os.getcwd()
             os.chdir(self.localtmp)
-            call(site.perHostMpiExec + ' cp ' + self.localtmp + '/' +
+            call(self.site.perHostMpiExec + ' cp ' + self.localtmp + '/' +
                  inp + ' ' + self.scratch, shell=True)
             if self.use_environ:
-                call(site.perHostMpiExec + ' cp ' + self.localtmp +
+                call(self.site.perHostMpiExec + ' cp ' + self.localtmp +
                      '/environ.in' + ' ' + self.scratch, shell=True)
 
             if piperead:
-                p = site.do_perProcMpiExec_outputonly(
+                p = self.site.do_perProcMpiExec_outputonly(
                     self.scratch,
                     binary + ' ' + self.parflags + ' -in ' + inp + ll)
             else:
-                site.runonly_perProcMpiExec(
+                self.site.runonly_perProcMpiExec(
                     self.scratch,
                     binary + ' ' + self.parflags + ' -in ' + inp + ll)
             os.chdir(cdir)
@@ -3877,7 +3885,7 @@ class espresso(Calculator):
         self.convergence = convsave
 
     def get_world(self):
-        return world(site.nprocs)
+        return world(self.site.nprocs)
 
     def get_number_of_scf_steps(self, all=False):
         """Get number of steps for convered scf. Returns an array.

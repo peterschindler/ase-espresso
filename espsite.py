@@ -1,26 +1,29 @@
-# This is a placeholder espsite.py
-# Replace this with one of the example files and adjust
-# to your cluster.
 import os
 
-
-class config:
-    def __init__(self):
+class Config:
+    def __init__(self,nproc):
         self.scratch = '.'
         self.submitdir = '.'
         self.batch = False
         # self.mpi_not_setup = True
         if 'ESP_PSP_PATH' not in os.environ:
             os.environ['ESP_PSP_PATH'] = '.'
+        self.nproc = nproc    
+        self.perHostMpiExec =  'mpiexec -np '+str(self.nproc)
+        self.perProcMpiExec =  'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
+        self.perSpecProcMpiExec = 'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
 
     def do_perProcMpiExec(self, workdir, program):
-        return None
+        execute = Popen(self.perProcMpiExec % (workdir, program), shell=True, stdin=PIPE, stdout=PIPE)
+        return (execute.stdin, execute.stdout)
 
     def do_perProcMpiExec_outputonly(self, workdir, program):
-        return None
+        return Popen(self.perProcMpiExec % (workdir, program), shell=True, stdout=PIPE).stdout
 
     def runonly_perProcMpiExec(self, workdir, program):
-        pass
+        os.system(self.perProcMpiExec % (workdir, program))
 
     def do_perSpecProcMpiExec(self, machinefile, nproc, workdir, program):
-        return None
+        execute = Popen(self.perProcMpiExec % (workdir, program), shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        return (execute.stdin, execute.stdout, execute.stderr)
+
