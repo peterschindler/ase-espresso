@@ -1802,12 +1802,10 @@ class espresso(Calculator):
                 if self.ion_dynamics == 'ase3':
                     p = atoms.positions
                     self.atoms = atoms.copy()
-                    print('G', file=self.cinp)
+                    self.cinp.write(b'G')
                     for x in p:
-                        print(
-                            ('%.15e %.15e %.15e' % (x[0], x[1], x[2])).replace(
-                                'e', 'd'),
-                            file=self.cinp)
+                        self.cinp.write(('%.15e %.15e %.15e' % (x[0], x[1], x[2])).replace(
+                                'e', 'd').encode())
                 self.cinp.flush()
 
     def read(self, atoms):
@@ -1835,12 +1833,10 @@ class espresso(Calculator):
                 if self.ion_dynamics == 'ase3':
                     p = atoms.positions
                     self.atoms = atoms.copy()
-                    print('G', file=self.cinp)
+                    self.cinp.write(b'G')
                     for x in p:
-                        print(
-                            ('%.15e %.15e %.15e' % (x[0], x[1], x[2])).replace(
-                                'e', 'd'),
-                            file=self.cinp)
+                        self.cinp.write(('%.15e %.15e %.15e' % (x[0], x[1], x[2])).replace(
+                                'e', 'd').encode())
                 self.cinp.flush()
             self.only_init = False
             s = open(self.log, 'a')
@@ -2197,7 +2193,7 @@ class espresso(Calculator):
         if self.started:
             if self.ion_dynamics == 'ase3':
                 # sending 'Q' to espresso tells it to quit cleanly
-                print('Q', file=self.cinp)
+                self.cinp.write(b'Q')
                 try:
                     self.cinp.flush()
                 except IOError:
