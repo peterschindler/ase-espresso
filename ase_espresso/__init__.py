@@ -54,6 +54,8 @@ class ConvergenceError(Exception):
 class KohnShamConvergenceError(ConvergenceError):
     pass
 
+pkgpath = os.path.abspath(os.path.dirname(__file__))
+rootpath = os.path.dirname(pkgpath)
 
 class espresso(Calculator):
     """ASE interface for Quantum Espresso"""
@@ -506,7 +508,10 @@ class espresso(Calculator):
         self.occupations = occupations
         self.outdir = outdir
         self.calcstress = calcstress
-        self.psppath = psppath
+        if psppath:
+            self.psppath = psppath
+        else:
+            self.psppath = os.path.join(rootpath,'pp',self.xc)
         self.dipole = dipole
         self.field = field
         self.output = output
@@ -544,10 +549,7 @@ class espresso(Calculator):
             self.parflags += parflags
         self.single_calculator = single_calculator
         self.txt = txt
-
-        self.mypath = os.path.abspath(os.path.dirname(__file__))
         self.writeversion = True
-
         self.atoms = None
         self.sigma_small = 1e-13
         self.started = False
@@ -1827,7 +1829,7 @@ class espresso(Calculator):
         if self.writeversion:
             self.writeversion = False
             with open(self.log, 'a') as s:
-                s.write('  python dir          : ' + self.mypath + '\n')
+                s.write('  python dir          : ' + pkgpath + '\n')
                 if len(self.exedir) == 0:
                     stdout = Popen(
                         'which pw.x', shell=True, stdout=PIPE).stdout
