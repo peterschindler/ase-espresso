@@ -12,6 +12,7 @@ import multiprocessing
 import warnings
 import atexit
 import sys
+from io import BytesIO
 
 import numpy as np
 from ase import Atoms
@@ -1755,20 +1756,23 @@ class espresso(Calculator):
         if self.atoms is None:
             self.set_atoms(atoms)
         x = atoms.cell - self.atoms.cell
-        morethanposchange = np.max(x) > 1E-13 or np.min(x) < -1E-13 or len(
-            atoms) != len(
-                self.atoms) or (atoms.get_atomic_numbers() !=
-                                self.atoms.get_atomic_numbers()).any()
+        morethanposchange = np.max(x) > 1E-13 \
+            or np.min(x) < -1E-13 \
+            or len(atoms) != len(self.atoms) \
+            or (atoms.get_atomic_numbers() 
+                != self.atoms.get_atomic_numbers()
+            ).any()
         x = atoms.positions - self.atoms.positions
-        if (np.max(x) > 1E-13 or
-            np.min(x) < -1E-13 or
-            morethanposchange or
-            (not self.started and not self.got_energy) or
-            self.recalculate):
+        if np.max(x) > 1E-13 \
+        or np.min(x) < -1E-13 \
+        or morethanposchange \
+        or (not self.started and not self.got_energy) \
+        or self.recalculate:
             self.recalculate = True
             self.results = {}
-            if self.ion_dynamics != 'ase3' or self.calculation in (
-                    'scf', 'nscf') or morethanposchange:
+            if self.ion_dynamics != 'ase3' \
+            or self.calculation in ('scf','nscf') \
+            or morethanposchange:
                 self.stop()
             self.read(atoms)
         elif self.only_init:
@@ -1811,12 +1815,12 @@ class espresso(Calculator):
                 if self.ion_dynamics == 'ase3':
                     p = atoms.positions
                     self.atoms = atoms.copy()
-                    print('G', file=self.cinp)
+                    self.cinp.write(b'G')
                     for x in p:
-                        print(
-                            ('%.15e %.15e %.15e' % (x[0], x[1], x[2])).replace(
-                                'e', 'd'),
-                            file=self.cinp)
+                        self.cinp.write(
+                            ('%.15e %.15e %.15e' % (x[0], x[1], x[2])
+                            ).replace('e', 'd').encode()
+                        )
                 self.cinp.flush()
 
     def read(self, atoms):
@@ -1844,12 +1848,12 @@ class espresso(Calculator):
                 if self.ion_dynamics == 'ase3':
                     p = atoms.positions
                     self.atoms = atoms.copy()
-                    print('G', file=self.cinp)
+                    self.cinp.write(b'G')
                     for x in p:
-                        print(
-                            ('%.15e %.15e %.15e' % (x[0], x[1], x[2])).replace(
-                                'e', 'd'),
-                            file=self.cinp)
+                        self.cinp.write(
+                            ('%.15e %.15e %.15e' % (x[0], x[1], x[2])
+                            ).replace('e', 'd').encode()
+                        )
                 self.cinp.flush()
             self.only_init = False
             s = open(self.log, 'a')
@@ -2015,7 +2019,11 @@ class espresso(Calculator):
             else:
                 self.forces = None
             self.recalculate = False
+
+            # flush the rest of cout into the log file
+            s.write(self.cout.read().decode('utf-8'))
             s.close()
+
             self.results['forces'] = self.forces
             if self.ion_dynamics != 'ase3':
                 self.stop()
@@ -2131,18 +2139,18 @@ class espresso(Calculator):
                          '/environ.in ' + self.scratch, shell=True)
 
                 if self.calculation != 'hund':
-                    if not self.proclist:
-                        self.cinp, self.cout = self.site.do_perProcMpiExec(
-                            self.scratch, self.exedir + 'pw.x ' +
-                            self.parflags + ' -in pw.inp')
-                    else:
-                        (self.cinp,
-                         self.cout,
-                         self.cerr) = self.site.do_perSpecProcMpiExec(
-                            self.mycpus, self.myncpus, self.scratch,
-                            self.exedir + 'pw.x ' + self.parflags +
-                            ' -in pw.inp|' + self.mypath + '/espfilter ' + str(
-                                self.natoms) + ' ' + self.log + '0')
+                    #if not self.proclist:
+                    self.cinp, self.cout = self.site.do_perProcMpiExec(
+                        self.scratch, self.exedir + 'pw.x ' +
+                        self.parflags + ' -in pw.inp')
+                    #else:
+                    #    (self.cinp,
+                    #     self.cout,
+                    #     self.cerr) = self.site.do_perSpecProcMpiExec(
+                    #        self.mycpus, self.myncpus, self.scratch,
+                    #        self.exedir + 'pw.x ' + self.parflags +
+                    #        ' -in pw.inp|' + self.mypath + '/espfilter ' + str(
+                    #            self.natoms) + ' ' + self.log + '0')
                 else:
                     self.site.runonly_perProcMpiExec(
                         self.scratch, self.exedir + 'pw.x ' + self.serflags +
@@ -2206,7 +2214,7 @@ class espresso(Calculator):
         if self.started:
             if self.ion_dynamics == 'ase3':
                 # sending 'Q' to espresso tells it to quit cleanly
-                print('Q', file=self.cinp)
+                self.cinp.write(b'Q')
                 try:
                     self.cinp.flush()
                 except IOError:

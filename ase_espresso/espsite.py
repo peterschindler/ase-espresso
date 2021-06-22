@@ -1,3 +1,4 @@
+import uuid
 import os
 from subprocess import Popen, PIPE
 
@@ -5,7 +6,7 @@ class Config:
     def __init__(self, nproc):
         self.scratch = '.'
         self.submitdir = '.'
-        self.batch = False
+        self.batch = True
         self.procs = []
         # self.mpi_not_setup = True
         if 'ESP_PSP_PATH' not in os.environ:
@@ -14,6 +15,8 @@ class Config:
         self.perHostMpiExec =  'mpiexec -np '+str(self.nproc)
         self.perProcMpiExec =  'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
         self.perSpecProcMpiExec = 'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
+        # assign a random job id
+        self.jobid = uuid.uuid4().hex[:8]
 
     def do_perProcMpiExec(self, workdir, program):
         execute = Popen(self.perProcMpiExec % (workdir, program), shell=True, stdin=PIPE, stdout=PIPE)
