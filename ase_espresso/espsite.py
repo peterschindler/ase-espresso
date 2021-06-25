@@ -12,9 +12,9 @@ class Config:
         if 'ESP_PSP_PATH' not in os.environ:
             os.environ['ESP_PSP_PATH'] = '.'
         self.nproc = nproc
-        self.perHostMpiExec =  'mpiexec -np '+str(self.nproc)
-        self.perProcMpiExec =  'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
-        self.perSpecProcMpiExec = 'mpiexec -np '+str(self.nproc)+' -wdir %s %s'
+        self.perHostMpiExec =  'mpiexec --use-hwthread-cpus -np '+str(self.nproc)
+        self.perProcMpiExec =  'mpiexec --use-hwthread-cpus -np '+str(self.nproc)+' -wdir %s %s'
+        self.perSpecProcMpiExec = 'mpiexec --use-hwthread-cpus -np '+str(self.nproc)+' -wdir %s %s'
         # assign a random job id
         self.jobid = uuid.uuid4().hex[:8]
 

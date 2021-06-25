@@ -549,7 +549,7 @@ class espresso(Calculator):
             self.parflags += parflags
         self.single_calculator = single_calculator
         self.txt = txt
-        self.writeversion = True
+        self.writeversion = False
         self.atoms = None
         self.sigma_small = 1e-13
         self.started = False
@@ -1465,12 +1465,12 @@ class espresso(Calculator):
         except BaseException:
             pass
 
-        if self.calculation != 'hund':
-            print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
-        else:
-            print(
-                '  conv_thr=' + utils.num2str(self.conv_thr * 500.) + ',',
-                file=f)
+        #if self.calculation != 'hund':
+        #    print('  conv_thr=' + utils.num2str(self.conv_thr) + ',', file=f)
+        #else:
+        #    print(
+        #        '  conv_thr=' + utils.num2str(self.conv_thr * 500.) + ',',
+        #        file=f)
         for x in list(self.convergence.keys()):
             if x == 'mixing':
                 print(
@@ -2232,8 +2232,14 @@ class espresso(Calculator):
                 s.write(a)
                 s.flush()
             s.close()
-            self.cinp.close()
-            self.cout.close()
+            try:
+                self.cinp.close()
+            except:
+                pass
+            try:
+                self.cout.close()
+            except:
+                pass
             self.started = False
 
     def topath(self, filename):
